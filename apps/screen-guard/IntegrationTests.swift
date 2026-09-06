@@ -33,7 +33,7 @@ struct IntegrationTests {
         var sleeps = 0
         var finishes = 0
         let notice = RecordingNotice()
-        let controller = ScreenGuardController(store: store, notice: notice, now: { clock }, sleepDisplay: { sleeps += 1 }, finished: { finishes += 1 })
+        let controller = ScreenGuardController(store: store, notice: notice, now: { clock }, sessionStatus: { .unlocked }, sleepDisplay: { sleeps += 1 }, finished: { finishes += 1 })
         var checks = 0
         func check(_ condition: @autoclosure () -> Bool, _ message: String) {
             precondition(condition(), message)
@@ -105,7 +105,7 @@ struct IntegrationTests {
         check(sleeps == 2 && finishes == 1, "Stopped events cannot restart guard")
 
         let secondNotice = RecordingNotice()
-        let second = ScreenGuardController(store: store, notice: secondNotice, now: { clock }, sleepDisplay: { sleeps += 1 }, finished: { finishes += 1 })
+        let second = ScreenGuardController(store: store, notice: secondNotice, now: { clock }, sessionStatus: { .unlocked }, sleepDisplay: { sleeps += 1 }, finished: { finishes += 1 })
         clock = 300
         try second.start()
         clock = 304.999
@@ -121,7 +121,7 @@ struct IntegrationTests {
         check(sleeps == 2, "Cancelled initial work cannot sleep later")
 
         let reopenedNotice = RecordingNotice()
-        let reopened = ScreenGuardController(store: store, notice: reopenedNotice, now: { clock }, sleepDisplay: { sleeps += 1 }, finished: { finishes += 1 })
+        let reopened = ScreenGuardController(store: store, notice: reopenedNotice, now: { clock }, sessionStatus: { .unlocked }, sleepDisplay: { sleeps += 1 }, finished: { finishes += 1 })
         clock = 400
         try reopened.start()
         clock = 402
@@ -165,7 +165,7 @@ struct IntegrationTests {
         check(!reopened.running && finishes == 3, "Turning on finishes the reopened controller")
 
         let cancelledNotice = RecordingNotice()
-        let cancelled = ScreenGuardController(store: store, notice: cancelledNotice, now: { clock }, sleepDisplay: { sleeps += 1 }, finished: { finishes += 1 })
+        let cancelled = ScreenGuardController(store: store, notice: cancelledNotice, now: { clock }, sessionStatus: { .unlocked }, sleepDisplay: { sleeps += 1 }, finished: { finishes += 1 })
         clock = 500
         try cancelled.start()
         clock = 501
@@ -174,6 +174,90 @@ struct IntegrationTests {
         cancelled.tick()
         check(!cancelled.running && finishes == 4 && sleeps == 4 && cancelledNotice.title == nil && cancelledNotice.compactSeconds == nil,
               "Turning on during the first three seconds cancels the reminder and all later countdown work")
+
+        // Regression: authenticating must not consume the desktop's wake window.
+        var session: GuardSession = .unlocked
+        let unlockedNotice = RecordingNotice()
+        let unlockController = ScreenGuardController(store: store, notice: unlockedNotice, now: { clock }, sessionStatus: { session }, sleepDisplay: { sleeps += 1 }, finished: { finishes += 1 })
+        clock = 600
+        try unlockController.start()
+        clock = 605
+        unlockController.tick()
+        unlockController.screenSlept()
+        session = .locked
+        unlockController.tick()
+        clock = 700
+        unlockController.screenWoke()
+        clock = 717
+        session = .unlocked
+        // Poll first, before any unlock notification can arrive.
+        unlockController.tick()
+        clock = 720
+        unlockController.tick()
+        check(sleeps == 5 && unlockedNotice.compactSeconds == 17,
+              "Unlock must start a full desktop window instead of executing the password-screen deadline")
+        clock = 726
+        unlockController.screenWoke()
+        check(unlockedNotice.compactSeconds == 11, "Delayed wake after unlock cannot extend the desktop deadline")
+        clock = 737
+        unlockController.tick()
+        check(sleeps == 6, "The fresh desktop window still expires exactly twenty seconds after unlock")
+        unlockController.screenSlept()
+        session = .locked
+        unlockController.tick()
+        clock = 800
+        unlockController.screenWoke()
+        session = .unlocked
+        clock = 830
+        unlockController.tick()
+        check(sleeps == 6 && unlockedNotice.title?.contains("20") == true,
+              "A delayed timer must observe unlock before consuming an already expired locked deadline")
+        clock = 833
+        unlockController.tick()
+        check(unlockedNotice.compactSeconds == 17, "Late unlock still gets three seconds of reminder")
+        session = .locked
+        unlockController.tick()
+        check(unlockedNotice.title == nil && unlockedNotice.compactSeconds == nil,
+              "Locking must hide desktop countdown UI")
+        try store.write("off")
+        session = .unlocked
+        clock = 900
+        unlockController.tick()
+        check(!unlockController.running && sleeps == 6 && finishes == 5,
+              "Cancellation while locked must survive unlock without new sleep or UI")
+
+        // The session may change while waiting for the cross-process mode lock.
+        var sessionReads = 0
+        var unlockOnSecondRead = false
+        var raceSession: GuardSession = .unlocked
+        let raceNotice = RecordingNotice()
+        let race = ScreenGuardController(store: store, notice: raceNotice, now: { clock }, sessionStatus: {
+            sessionReads += 1
+            if unlockOnSecondRead && sessionReads >= 2 { return .unlocked }
+            return raceSession
+        }, sleepDisplay: { sleeps += 1 }, finished: { finishes += 1 })
+        clock = 1_000
+        try race.start()
+        clock = 1_005
+        race.tick()
+        race.screenSlept()
+        raceSession = .locked
+        race.tick()
+        clock = 1_100
+        race.screenWoke()
+        clock = 1_120
+        sessionReads = 0
+        unlockOnSecondRead = true
+        race.tick()
+        check(sleeps == 7 && raceNotice.title?.contains("20") == true,
+              "Unlock between timer evaluation and actual pmset must discard the stale sleep command")
+        raceSession = .unlocked
+        unlockOnSecondRead = false
+        clock = 1_123
+        race.tick()
+        check(raceNotice.compactSeconds == 17, "The final-action check starts the fresh deadline only once")
+        race.turnOn()
+        check(finishes == 6, "Race regression releases the running controller")
 
         let canvas = NSView(frame: NSRect(x: 0, y: 0, width: 554, height: 260))
         let reminder = NoticeView(frame: NSRect(x: 12, y: 136, width: 530, height: 112))

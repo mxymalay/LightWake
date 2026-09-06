@@ -19,8 +19,8 @@ APPS = [
     ("关闭屏幕.app", "local.xy.turn-off-display", "off", "Off-Info.plist"),
     ("开启屏幕.app", "local.xy.turn-on-display", "on", "On-Info.plist"),
 ]
-VERSION = "2.2"
-BUILD_NUMBER = "4"
+VERSION = "2.2.1"
+BUILD_NUMBER = "5"
 
 
 def run(*arguments: str | Path) -> None:

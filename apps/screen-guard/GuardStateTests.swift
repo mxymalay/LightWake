@@ -14,6 +14,13 @@ struct GuardStateTests {
             }
         }
 
+        func expectChange(_ actual: Bool, _ expected: Bool, _ context: String) {
+            checks += 1
+            if actual != expected {
+                failures.append("\(context): expected change \(expected), got \(actual)")
+            }
+        }
+
         // Explicit starts show a three-second notice, then two corner digits.
         do {
             var state = GuardState()
@@ -201,6 +208,116 @@ struct GuardStateTests {
             expect(state.tick(now: 45), .sleepNow, "new enable fallback")
             checks += 1
             if !state.isEnabled { failures.append("isEnabled remains false after enable") }
+        }
+
+        // Time spent entering a password must not consume the desktop window.
+        do {
+            var state = GuardState()
+            _ = state.enable(now: 0)
+            _ = state.screenDidSleep(now: 1)
+            expectChange(state.updateSession(.locked, now: 50), true, "observe password lock")
+            expect(state.screenDidWake(now: 100), .waitingForWake, "hide reminder behind password screen")
+            expect(state.tick(now: 116), .waitingForWake, "hide corner countdown behind password screen")
+            expectChange(state.updateSession(.unlocked, now: 117), true, "successful password unlock")
+            expect(state.tick(now: 117), .reminder, "unlock shows a fresh desktop reminder")
+            expect(state.tick(now: 119.999), .reminder, "unlock reminder lasts three seconds")
+            expect(state.tick(now: 120), .countdown(17), "old password wake deadline cannot sleep desktop")
+            expect(state.tick(now: 136.999), .countdown(1), "desktop gets the full twenty seconds")
+            expect(state.tick(now: 137), .sleepNow, "new desktop deadline sleeps once")
+        }
+
+        // Both notification orders start once at unlock, not at password wake.
+        for unlockBeforeWake in [false, true] {
+            var state = GuardState()
+            _ = state.enable(now: 0)
+            _ = state.screenDidSleep(now: 1)
+            _ = state.updateSession(.locked, now: 50)
+            if !unlockBeforeWake {
+                expect(state.screenDidWake(now: 100), .waitingForWake, "locked wake before unlock")
+            }
+            expectChange(state.updateSession(.unlocked, now: 117), true, "unlock transition in either event order")
+            if unlockBeforeWake {
+                expect(state.screenDidWake(now: 118), .reminder, "wake delivered after unlock retains its start")
+            }
+            expectChange(state.updateSession(.unlocked, now: 119), false, "duplicate unlock does not restart time")
+            expect(state.screenDidWake(now: 125), .countdown(12), "duplicate display wake cannot extend unlock window")
+            expectChange(state.updateSession(.unlocked, now: 136), false, "repeated unlocked polling is inert")
+            expect(state.tick(now: 137), .sleepNow, "both event orders retain unlock deadline")
+        }
+
+        // Reconcile unlock before an overdue tick, including an old sleep retry.
+        for expiredSleepAlreadyRequested in [false, true] {
+            var state = GuardState()
+            _ = state.enable(now: 0)
+            _ = state.screenDidSleep(now: 1)
+            _ = state.updateSession(.locked, now: 50)
+            _ = state.screenDidWake(now: 100)
+            if expiredSleepAlreadyRequested {
+                expect(state.tick(now: 120), .sleepNow, "locked accidental wake still expires")
+            }
+            _ = state.updateSession(.unlocked, now: 145)
+            expect(state.tick(now: 145), .reminder, "unlock cancels overdue wake or retry action")
+            expect(state.tick(now: 148), .countdown(17), "late unlock keeps full visible countdown")
+            expect(state.tick(now: 165), .sleepNow, "late unlock uses only its new deadline")
+        }
+
+        // Locked sessions keep accidental-wake expiry but never show desktop UI.
+        do {
+            var state = GuardState()
+            _ = state.updateSession(.locked, now: 0)
+            expect(state.startCountdown(now: 10), .waitingForWake, "locked explicit close hides initial banner")
+            expect(state.tick(now: 13), .waitingForWake, "locked explicit close hides initial digits")
+            expect(state.tick(now: 15), .sleepNow, "locked explicit close preserves five-second deadline")
+            _ = state.screenDidSleep(now: 16)
+            expect(state.screenDidWake(now: 100), .waitingForWake, "locked accidental wake has no desktop banner")
+            expectChange(state.updateSession(.locked, now: 110), false, "duplicate lock cannot alter deadline")
+            expect(state.tick(now: 119.999), .waitingForWake, "locked accidental wake stays bright for twenty seconds")
+            expect(state.tick(now: 120), .sleepNow, "locked accidental wake still sleeps at twenty seconds")
+            expect(state.tick(now: 120), .waitingForWake, "locked sleep is one-shot")
+        }
+
+        // An inactive or unknown console session cannot send a global sleep command.
+        do {
+            var state = GuardState()
+            expectChange(state.updateSession(.unavailable, now: 0), true, "observe unavailable session")
+            expect(state.tick(now: 0), .inactive, "session loss does not enable guard")
+            expect(state.enable(now: 10), .waitingForWake, "unavailable immediate menu action cannot sleep")
+            expect(state.tick(now: 30), .waitingForWake, "unavailable immediate retry cannot sleep")
+            expect(state.startCountdown(now: 40), .waitingForWake, "unavailable explicit start hides reminder")
+            expect(state.tick(now: 45), .waitingForWake, "unavailable initial deadline cannot sleep")
+            expect(state.screenDidSleep(now: 50), .waitingForWake, "unavailable display sleep stays hidden")
+            expect(state.screenDidWake(now: 60), .waitingForWake, "unavailable wake cannot expose a reminder")
+            expect(state.tick(now: 80), .waitingForWake, "unavailable wake deadline cannot sleep")
+            expect(state.tick(now: 1_000), .waitingForWake, "prolonged absence never sends sleep")
+            expectChange(state.updateSession(.unavailable, now: 1_001), false, "duplicate unavailable observation is inert")
+            _ = state.updateSession(.unlocked, now: 1_010)
+            expect(state.tick(now: 1_010), .reminder, "return to console starts fresh desktop window")
+            expect(state.tick(now: 1_013), .countdown(17), "returned console gets full corner countdown")
+            expect(state.tick(now: 1_030), .sleepNow, "returned console sleeps only at its new deadline")
+        }
+
+        // Losing the console must suppress even an already pending sleep/retry.
+        for useImmediateMenu in [false, true] {
+            var state = GuardState()
+            _ = state.startCountdown(now: 100)
+            if useImmediateMenu { _ = state.enable(now: 100) }
+            _ = state.updateSession(.unavailable, now: 102)
+            expect(state.tick(now: 1_000), .waitingForWake, "session loss suppresses outstanding deadline")
+            _ = state.updateSession(.unlocked, now: 1_001)
+            expect(state.tick(now: 1_001), .reminder, "return replaces outstanding deadline")
+            expect(state.tick(now: 1_021), .sleepNow, "return creates only one new window")
+        }
+
+        // Cancellation remains authoritative across later lock and unlock events.
+        for session in [GuardSession.locked, .unavailable] {
+            var state = GuardState()
+            _ = state.startCountdown(now: 100)
+            _ = state.updateSession(session, now: 101)
+            expect(state.disable(), .inactive, "cancel outside the unlocked desktop")
+            expectChange(state.updateSession(.unlocked, now: 200), true, "observe unlock after cancellation")
+            expect(state.tick(now: 200), .inactive, "unlock cannot enable a cancelled guard")
+            expect(state.screenDidWake(now: 201), .inactive, "late display wake cannot enable cancelled guard")
+            expect(state.tick(now: 1_000), .inactive, "cancelled guard has no future sleep deadline")
         }
 
         for failure in failures { print("FAIL: \(failure)") }

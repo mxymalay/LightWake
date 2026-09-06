@@ -1,5 +1,6 @@
 import AppKit
 import IOKit.pwr_mgt
+import OSLog
 
 let stopNotification = Notification.Name("local.xy.screen-guard.turn-on")
 
@@ -240,6 +241,7 @@ final class ScreenGuardController: NSObject {
     let store: ScreenControlStore
     let notice: ScreenNoticing
     let now: () -> TimeInterval
+    let sessionStatus: () -> GuardSession
     let sleepDisplay: () throws -> Void
     let finished: () -> Void
     private(set) var token = ""
@@ -251,13 +253,26 @@ final class ScreenGuardController: NSObject {
     private var holdsAssertion = false
     private var lastPhase: GuardPhase = .inactive
     private var statusItem: NSStatusItem?
+    private let logger = Logger(subsystem: "local.xy.screen-guard", category: "lifecycle")
 
-    init(store: ScreenControlStore = ScreenControlStore(), notice: ScreenNoticing = ScreenNotice(), now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }, sleepDisplay: @escaping () throws -> Void = ScreenGuardController.performDisplaySleep, finished: @escaping () -> Void) {
+    init(store: ScreenControlStore = ScreenControlStore(), notice: ScreenNoticing = ScreenNotice(), now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }, sessionStatus: @escaping () -> GuardSession = ScreenGuardController.currentSession, sleepDisplay: @escaping () throws -> Void = ScreenGuardController.performDisplaySleep, finished: @escaping () -> Void) {
         self.store = store
         self.notice = notice
         self.now = now
+        self.sessionStatus = sessionStatus
         self.sleepDisplay = sleepDisplay
         self.finished = finished
+    }
+
+    static func currentSession() -> GuardSession {
+        guard let session = CGSessionCopyCurrentDictionary() as? [String: Any],
+              session[kCGSessionOnConsoleKey as String] as? Bool == true,
+              session[kCGSessionLoginDoneKey as String] as? Bool == true else {
+            return .unavailable
+        }
+        // macOS omits this key for an unlocked session. Re-read at the action
+        // boundary: display wake occurs before password authentication finishes.
+        return session["CGSSessionScreenIsLocked"] as? Bool == true ? .locked : .unlocked
     }
 
     static func performDisplaySleep() throws {
@@ -294,7 +309,26 @@ final class ScreenGuardController: NSObject {
         let center = NSWorkspace.shared.notificationCenter
         observers.append(center.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main) { [weak self] _ in self?.screenSlept() })
         observers.append(center.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { [weak self] _ in self?.screenWoke() })
+        for name in [NSWorkspace.sessionDidBecomeActiveNotification, NSWorkspace.sessionDidResignActiveNotification] {
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.tick() })
+        }
+        for name in ["com.apple.screenIsLocked", "com.apple.screenIsUnlocked"] {
+            DistributedNotificationCenter.default().addObserver(self, selector: #selector(sessionChanged), name: Notification.Name(name), object: nil, suspensionBehavior: .deliverImmediately)
+        }
         DistributedNotificationCenter.default().addObserver(self, selector: #selector(externalTurnOn), name: stopNotification, object: nil, suspensionBehavior: .deliverImmediately)
+    }
+
+    @objc private func sessionChanged() {
+        if Thread.isMainThread { tick() }
+        else { DispatchQueue.main.async { [weak self] in self?.tick() } }
+    }
+
+    @discardableResult
+    private func refreshSession() -> Bool {
+        let session = sessionStatus()
+        let changed = state.updateSession(session, now: now())
+        if changed { logger.info("Session changed: \(String(describing: session), privacy: .public)") }
+        return changed
     }
 
     private func permitted() -> Bool {
@@ -305,26 +339,33 @@ final class ScreenGuardController: NSObject {
 
     func tick() {
         guard permitted() else { return }
+        refreshSession()
         apply(state.tick(now: now()))
     }
 
     func screenSlept() {
         guard permitted() else { return }
+        refreshSession()
+        logger.info("Display sleep notification")
         apply(state.screenDidSleep(now: now()))
     }
 
     func screenWoke() {
         guard permitted() else { return }
+        refreshSession()
+        logger.info("Display wake notification")
         apply(state.screenDidWake(now: now()))
     }
 
     func startCountdown() {
         guard permitted() else { return }
+        refreshSession()
         apply(state.startCountdown(now: now()))
     }
 
     @objc func sleepAgain() {
         guard permitted() else { return }
+        refreshSession()
         apply(state.enable(now: now()))
     }
 
@@ -344,8 +385,19 @@ final class ScreenGuardController: NSObject {
             notice.hide()
             guard permitted() else { return }
             do {
-                let performed = try store.performIfMatches(token, action: sleepDisplay)
+                var replacement: GuardPhase?
+                let performed = try store.performIfMatches(token) {
+                    // Authentication can finish while the mode lock is busy.
+                    // Discard an expired password-screen deadline before pmset.
+                    if refreshSession() {
+                        replacement = state.tick(now: now())
+                        return
+                    }
+                    logger.info("Requesting display sleep")
+                    try sleepDisplay()
+                }
                 if !performed { stop() }
+                else if let replacement { apply(replacement) }
             } catch { fail(error) }
         case .waitingForWake, .inactive:
             notice.hide()
