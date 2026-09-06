@@ -1,0 +1,30 @@
+# Local working history, backups, and generated SDK overlays
+/work/
+/.build/
+**/build/
+**/backups/
+*.app/
+*.zip
+*.log
+
+# Compiler and editor output
+__pycache__/
+*.py[cod]
+*.swiftconstvalues
+*-sources.list
+*-const.list
+*.swiftmodule
+*.swiftdoc
+*.swiftsourceinfo
+xcuserdata/
+*.xcuserstate
+.DS_Store
+
+# Rebuildable icon sizes; keep source PNGs and the distributed icns asset
+*.iconset/
+
+# Local credentials/configuration
+.env
+.env.*
+*.pem
+*.key
