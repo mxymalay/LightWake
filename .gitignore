@@ -1,5 +1,7 @@
 # Local working history, backups, and generated SDK overlays
 /work/
+# RingView publication copy; maintained in its own repository
+/apps/system-widget/
 /.build/
 **/build/
 **/backups/

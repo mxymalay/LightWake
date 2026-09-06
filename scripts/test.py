@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run resource sampling and guard tests without calling pmset displaysleepnow."""
+"""Run LightWake guard tests without calling pmset displaysleepnow."""
 from pathlib import Path
 import argparse
 import subprocess
@@ -18,13 +18,10 @@ def main():
     output = ROOT / ".build/tests"
     output.mkdir(parents=True, exist_ok=True)
     sg = ROOT / "apps/screen-guard"
-    wg = ROOT / "apps/system-widget"
     suites = [
         ("guard-state", sg, ["GuardState.swift", "GuardStateTests.swift"], ["-D", "GUARD_STATE_TESTS"], []),
         ("control-store", sg, ["ControlStore.swift", "ControlStoreTests.swift"], ["-D", "CONTROL_STORE_TESTS"], []),
         ("guard-integration", sg, ["GuardState.swift", "ControlStore.swift", "ScreenGuard.swift", "IntegrationTests.swift"], [], [str(output)]),
-        ("system-metrics", wg, ["SystemMetrics.swift", "SystemMetricsTests.swift"], ["-D", "SYSTEM_METRICS_TESTS"], []),
-        ("power-disk", wg, ["PowerDiskMetrics.swift", "PowerDiskMetricsTests.swift"], ["-D", "POWER_DISK_METRICS_TESTS"], []),
     ]
     if args.visual:
         suites.append(("notice-animation", sg, ["GuardState.swift", "ControlStore.swift", "ScreenGuard.swift", "NoticeAnimationTests.swift"], [], [str(output)]))
