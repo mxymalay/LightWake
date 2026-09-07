@@ -7,24 +7,26 @@ enum QuietSettingsLayoutTests {
         NSApp.setActivationPolicy(.prohibited)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("quiet-settings-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
-        let manager = QuietProtectionManager(directory: root, resources: root, launchAgents: root,
-            run: { _ in preconditionFailure("Rendering preferences must never start a helper") })
-        let controller = QuietProtectionSettings(manager: manager, inputStore: ScreenInputRuleStore(fileURL: root.appendingPathComponent("input-rules.json")))
+        let controller = QuietProtectionSettings(inputStore: ScreenInputRuleStore(fileURL: root.appendingPathComponent("input-rules.json")))
         let window = controller.window!
-        precondition(!window.isVisible && !manager.isEnabled, "New settings must stay off, without opening the desktop")
+        precondition(!window.isVisible, "Layout checks must not open the desktop")
         let content = window.contentView!
         content.layoutSubtreeIfNeeded()
         var labels = 0
         var switches = 0
+        var wakeNoticeFound = false
         func inspect(_ view: NSView) {
-            if let button = view as? NSButton, button.title == "启用 Codex 防亮屏保护" || button.title == "启用这条规则" {
-                precondition(button.state == .off, "New settings must visibly show protection off")
-                if button.title == "启用 Codex 防亮屏保护" {
-                    precondition(!button.isEnabled, "Withdrawn freezing protection must not be available in settings")
+            if let button = view as? NSButton {
+                precondition(!button.title.contains("防亮屏"), "Removed protection must have no settings control")
+                if button.title == "启用这条规则" {
+                    precondition(button.state == .off, "New input rules must remain disabled")
+                    switches += 1
                 }
-                switches += 1
             }
             if let field = view as? NSTextField {
+                if field.stringValue.contains("Codex") && field.stringValue.contains("桌面历史记录") && field.stringValue.contains("可能触发亮屏") {
+                    wakeNoticeFound = true
+                }
                 let frame = field.convert(field.bounds, to: content)
                 precondition(content.bounds.insetBy(dx: -1, dy: -1).contains(frame), "Settings text escaped the window")
                 precondition(field.frame.height >= field.fittingSize.height - 1, "Settings text was vertically truncated")
@@ -33,13 +35,14 @@ enum QuietSettingsLayoutTests {
             for child in view.subviews { inspect(child) }
         }
         let tabs = content.subviews.first { $0 is NSTabView } as! NSTabView
+        precondition(tabs.tabViewItems.map(\.label) == ["按键规则", "使用说明"])
         for item in tabs.tabViewItems {
             tabs.selectTabViewItem(item)
             content.layoutSubtreeIfNeeded()
             inspect(item.view!)
         }
-        precondition(labels >= 5 && switches == 2)
+        precondition(labels >= 5 && switches == 1 && wakeNoticeFound)
         precondition(!FileManager.default.fileExists(atPath: root.path), "Layout check installed a feature or wrote preferences")
-        print("PASS: settings switch off, no installation or visible window, all \(labels) text labels fit.")
+        print("PASS: Codex wake notice present, protection control removed, no visible window or state changes, all \(labels) text labels fit.")
     }
 }
