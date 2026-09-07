@@ -4,9 +4,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var guardController: ScreenGuardController?
     var notice: ScreenNotice?
     var onExit: DispatchWorkItem?
+    var settingsController: QuietProtectionSettings?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if Bundle.main.object(forInfoDictionaryKey: "ScreenGuardRole") as? String == "on" {
+        if Bundle.main.object(forInfoDictionaryKey: "ScreenGuardRole") as? String == "settings" {
+            let settings = QuietProtectionSettings()
+            settingsController = settings
+            settings.present()
+        } else if Bundle.main.object(forInfoDictionaryKey: "ScreenGuardRole") as? String == "on" {
             turnOn()
         } else {
             let controller = ScreenGuardController { NSApp.terminate(nil) }
@@ -17,9 +22,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if let settingsController { settingsController.present(); return false }
         if let controller = guardController { controller.startCountdown() }
         else { turnOn() }
         return false
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        settingsController != nil
     }
 
     private func turnOn() {

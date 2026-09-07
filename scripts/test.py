@@ -21,6 +21,8 @@ def main():
     suites = [
         ("guard-state", sg, ["GuardState.swift", "GuardStateTests.swift"], ["-D", "GUARD_STATE_TESTS"], []),
         ("control-store", sg, ["ControlStore.swift", "ControlStoreTests.swift"], ["-D", "CONTROL_STORE_TESTS"], []),
+        ("quiet-protection", sg, ["QuietProtection.swift", "QuietProtectionTests.swift"], [], []),
+        ("quiet-settings-layout", sg, ["QuietProtection.swift", "QuietProtectionSettings.swift", "QuietSettingsLayoutTests.swift"], [], []),
         ("guard-integration", sg, ["GuardState.swift", "ControlStore.swift", "ScreenGuard.swift", "IntegrationTests.swift"], [], [str(output)]),
     ]
     if args.visual:
@@ -32,6 +34,7 @@ def main():
             subprocess.run(["xcrun", "swiftc", "-parse-as-library", *flags,
                             *(str(directory / source) for source in sources), "-o", str(executable)], check=True)
             subprocess.run([str(executable), *arguments], check=True)
+    subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", str(sg / "tests"), "-v"], check=True)
     print("All selected test suites passed.")
 
 
