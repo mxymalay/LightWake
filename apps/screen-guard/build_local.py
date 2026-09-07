@@ -21,8 +21,8 @@ APPS = [
     ("轻醒按键.app", "local.xy.screen-guard-control", "controller", "Controller-Info.plist"),
     ("轻醒设置.app", "local.xy.lightwake-settings", "settings", "Settings-Info.plist"),
 ]
-VERSION = "2.5.0"
-BUILD_NUMBER = "8"
+VERSION = "2.5.1"
+BUILD_NUMBER = "9"
 QUIET_RESOURCES = ["quiet_service_guard.py", "quiet_desktop_check.py", "quiet-sky.mjs"]
 
 

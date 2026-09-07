@@ -16,6 +16,10 @@ final class ScreenButtonController {
     private var lastPress: [String: TimeInterval] = [:]
     private var opening = false
     private var queued: (ScreenInputRule, Bool)?
+    private var pendingTarget: ScreenInputRule?
+    private var targetTimer: Timer?
+    private var needsDesktopSettling = false
+    private var desktopReadySince: TimeInterval?
     private let logger = Logger(subsystem: "local.xy.screen-guard", category: "controller-button")
 
     init(store: ScreenControlStore = ScreenControlStore(),
@@ -39,6 +43,8 @@ final class ScreenButtonController {
         self.openTarget = openTarget
         self.rules = rules
     }
+
+    deinit { targetTimer?.invalidate() }
 
     func press() {
         var legacy = rules.mappedRule(ScreenInputContract.legacyRuleID) ?? ScreenInputRule()
@@ -78,11 +84,13 @@ final class ScreenButtonController {
         case .none:
             return
         case .startCountdown:
+            cancelPendingTarget()
             opening = true
             openApplication("local.xy.turn-off-display", false) { [weak self] error in
                 self?.finishedOpening(error)
             }
         case .keepScreenOn:
+            cancelPendingTarget()
             // Cancel under the same mode-file lock as pmset before launching
             // anything. A nearly expired countdown cannot win a launch race.
             do {
@@ -97,11 +105,53 @@ final class ScreenButtonController {
             openApplication("local.xy.turn-on-display", false) { [weak self] error in
                 guard let self else { return }
                 if let error { self.logger.error("On app: \(error.localizedDescription, privacy: .public)") }
-                self.openTarget(rule.target) { [weak self] error in
-                    self?.finishedOpening(error)
+                if rule.target.applicationIdentifier != nil || rule.target.folderPath != nil {
+                    self.pendingTarget = rule
+                    self.needsDesktopSettling = session != .unlocked || asleep
+                    // Poll only while an explicitly triggered target is pending.
+                    // These state reads do not request display wake or unlock.
+                    let timer = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in self?.checkPendingTarget() }
+                    timer.tolerance = 0.04
+                    self.targetTimer = timer
+                    RunLoop.main.add(timer, forMode: .common)
+                    self.logger.info("Target queued; waiting for an unlocked, awake desktop if necessary")
                 }
+                self.finishedOpening(nil)
             }
         }
+    }
+
+    func checkPendingTarget() {
+        guard !opening, let rule = pendingTarget else { return }
+        // A changed/deleted rule or a new screen-off mode revokes an old request.
+        guard store.matches("off"), rules.load().contains(rule) else {
+            logger.info("Pending target cancelled: rule or screen mode changed")
+            cancelPendingTarget()
+            return
+        }
+        guard sessionStatus() == .unlocked, !displayAsleep() else {
+            needsDesktopSettling = true
+            desktopReadySince = nil
+            return
+        }
+        if needsDesktopSettling {
+            guard let readySince = desktopReadySince else { desktopReadySince = now(); return }
+            // Authentication can finish before the lock-screen transition does.
+            // Require a stable desktop; relocking or switching sessions resets it.
+            guard now() - readySince >= 0.6 else { return }
+        }
+        cancelPendingTarget()
+        opening = true
+        logger.info("Opening explicit rule target on the unlocked desktop")
+        openTarget(rule.target) { [weak self] error in self?.finishedOpening(error) }
+    }
+
+    private func cancelPendingTarget() {
+        targetTimer?.invalidate()
+        targetTimer = nil
+        pendingTarget = nil
+        desktopReadySince = nil
+        needsDesktopSettling = false
     }
 
     private func finishedOpening(_ error: Error?) {
@@ -111,6 +161,7 @@ final class ScreenButtonController {
             queued = nil
             handle(rule, recentlyResting: recentlyResting)
         }
+        checkPendingTarget()
     }
 
     private static func openTarget(_ target: ScreenRuleTarget, completion: @escaping (Error?) -> Void) {

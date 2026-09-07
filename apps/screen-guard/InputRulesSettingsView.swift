@@ -32,7 +32,7 @@ final class InputRulesSettingsView: NSView {
         copy.target = self; copy.action = #selector(copyMapping)
         let title = NSTextField(labelWithString: "一个按键，一条规则")
         title.font = .systemFont(ofSize: 22, weight: .semibold)
-        let detail = NSTextField(wrappingLabelWithString: "选择具体按键和对应的应用或项目文件夹。只有这条规则被触发时才执行；普通亮屏不打开目标。")
+        let detail = NSTextField(wrappingLabelWithString: "为指定按键选择应用和项目文件夹。若需要解锁，会等正常解锁后再打开目标；普通亮屏不执行。")
         let effects = NSTextField(wrappingLabelWithString: "键盘和鼠标规则启用后会在登录时监听指定按键，需要系统的输入监控授权；原按键仍会传给其他应用。不会记录输入内容，也不会自动解锁。")
         effects.textColor = .secondaryLabelColor
         effects.font = .systemFont(ofSize: 11)
