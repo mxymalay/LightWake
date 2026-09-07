@@ -1,4 +1,5 @@
 import AppKit
+import OSLog
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var guardController: ScreenGuardController?
@@ -89,6 +90,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct ScreenGuardApplication {
     static func main() {
+        // Retire an old opt-in without installing a job, signalling a service,
+        // activating an application or changing authentication/display state.
+        do { try QuietProtectionManager().disable() }
+        catch { Logger(subsystem: "local.xy.screen-guard", category: "quiet-protection").error("Could not disable legacy protection: \(error.localizedDescription, privacy: .public)") }
         if CommandLine.arguments.contains("--request-input-access") {
             _ = CGRequestListenEventAccess()
             return

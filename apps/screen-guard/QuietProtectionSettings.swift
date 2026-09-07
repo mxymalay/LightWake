@@ -15,10 +15,10 @@ final class QuietProtectionSettings: NSWindowController {
         super.init(window: window)
         let title = NSTextField(labelWithString: "让屏幕安静休息")
         title.font = .systemFont(ofSize: 23, weight: .semibold)
-        let detail = NSTextField(wrappingLabelWithString: "部分 Codex 后台检查会唤醒显示器。开启保护后，轻醒会在熄屏、锁屏或自动熄屏模式中暂停电脑操作服务。")
-        let effects = NSTextField(wrappingLabelWithString: "开启前请了解：\n• 桌面操作与屏幕历史记录会暂停，相关请求可能超时。\n• 屏幕历史可能停止，需要你在 Codex 设置中手动重新开启。\n• 恢复正常使用电脑后，轻醒只恢复服务进程，不会替你开启历史记录。\n• 这是本地防护，无法保证拦住所有来源的亮屏。")
+        let detail = NSTextField(wrappingLabelWithString: "此版本已停用通过暂停电脑操作服务来防止亮屏的功能。实测出现指纹解锁卡住，兼容性尚未解决。")
+        let effects = NSTextField(wrappingLabelWithString: "按键规则、应用和项目选择仍可使用。\n\n任务仍可在操作桌面前检查熄屏和锁屏状态，暂缓桌面操作；这不能阻止 Codex 主程序自身的所有亮屏请求。\n\n轻醒不会自动解锁，也不会替你开启屏幕历史记录。")
         effects.textColor = .secondaryLabelColor
-        let choice = NSTextField(wrappingLabelWithString: "默认关闭。只有你确认开启后才安装后台保护，并记住你的选择。")
+        let choice = NSTextField(wrappingLabelWithString: "开关暂不可开启。旧版已开启的保护仍可关闭；新版本启动时也会关闭旧选择。")
         choice.textColor = .secondaryLabelColor
         toggle.target = self
         toggle.action = #selector(toggleProtection)
@@ -65,15 +65,7 @@ final class QuietProtectionSettings: NSWindowController {
     @objc private func toggleProtection() {
         do {
             if toggle.state == .on {
-                let alert = NSAlert()
-                alert.messageText = "开启 Codex 防亮屏保护？"
-                alert.informativeText = "保护期间电脑操作会暂停，相关请求可能超时。屏幕历史记录可能停止且无法自动恢复，需要你在 Codex 设置中重新开启。轻醒不会替你开启历史记录。"
-                alert.alertStyle = .warning
-                // Cancel is the default button; pressing Return is not consent.
-                alert.addButton(withTitle: "取消")
-                alert.addButton(withTitle: "了解副作用并开启")
-                let confirmed = alert.runModal() == .alertSecondButtonReturn
-                _ = try manager.enable(confirmed: confirmed)
+                _ = try manager.enable(confirmed: true)
             } else {
                 try manager.disable()
             }
@@ -88,6 +80,7 @@ final class QuietProtectionSettings: NSWindowController {
 
     private func refresh() {
         toggle.state = manager.isEnabled ? .on : .off
+        toggle.isEnabled = manager.isEnabled
         status.stringValue = manager.statusText
     }
 

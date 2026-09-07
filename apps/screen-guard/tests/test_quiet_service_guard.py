@@ -1,4 +1,4 @@
-"""Regression tests for service suspension; never operate the real desktop."""
+"""Regression tests for retired protection and legacy cleanup; no real desktop."""
 import importlib.util
 import os
 from pathlib import Path
@@ -49,6 +49,15 @@ class GuardTests(unittest.TestCase):
         self.allowed = allowed
         self.controller.step({"allowed": allowed, "reason": "ready" if allowed else "display_asleep"}, now, enabled=True)
 
+    def seed_legacy_suspension(self):
+        # Only this independent C test worker is stopped to represent an old
+        # installation. Production code must never acquire another suspension.
+        record = self.table.inspect(self.child.pid)
+        os.kill(self.child.pid, signal.SIGSTOP)
+        self.wait_status(True)
+        self.guard.atomic_json(self.state, {"version": 1, "owned": [record]})
+        self.controller = self.make_controller()
+
     def wait_status(self, stopped):
         deadline = time.monotonic() + 2
         while time.monotonic() < deadline:
@@ -58,7 +67,15 @@ class GuardTests(unittest.TestCase):
             time.sleep(0.01)
         self.fail("worker did not enter expected stopped/running state")
 
-    def test_dark_stops_real_process_and_only_stable_ready_resumes(self):
+    def test_withdrawn_feature_never_freezes_a_running_service_even_with_old_consent(self):
+        self.step(False)
+        time.sleep(0.05)
+        self.assertNotEqual(self.table.inspect(self.child.pid)["status"], 4,
+                            "Old consent must not freeze an IPC service during lock/unlock")
+        self.assertFalse(self.controller.owned)
+
+    def test_legacy_owned_process_only_resumes_after_stable_ready(self):
+        self.seed_legacy_suspension()
         self.step(False)
         self.wait_status(True)
         os.set_blocking(self.child.stdout.fileno(), False)
@@ -74,8 +91,7 @@ class GuardTests(unittest.TestCase):
         self.assertFalse(self.controller.owned)
 
     def test_restart_recovers_owned_suspension(self):
-        self.step(False)
-        self.wait_status(True)
+        self.seed_legacy_suspension()
         self.controller = self.make_controller()
         self.step(True, 10)
         self.step(True, 12.1)
@@ -91,6 +107,7 @@ class GuardTests(unittest.TestCase):
         self.wait_status(True)
 
     def test_rechecks_desktop_before_resume(self):
+        self.seed_legacy_suspension()
         self.step(False)
         self.wait_status(True)
         self.controller.step({"allowed": True}, 1)
@@ -98,13 +115,13 @@ class GuardTests(unittest.TestCase):
         self.wait_status(True)
         self.assertTrue(self.controller.owned)
 
-    def test_unknown_state_stops_service(self):
+    def test_unknown_state_never_stops_service(self):
         self.controller.step({"reason": "probe_failed"}, 0, enabled=True)
-        self.wait_status(True)
+        self.wait_status(False)
+        self.assertFalse(self.controller.owned)
 
     def test_reused_pid_record_cannot_resume_process(self):
-        self.step(False)
-        self.wait_status(True)
+        self.seed_legacy_suspension()
         for record in self.controller.owned.values():
             record["start_sec"] -= 1
         self.step(True, 1)
@@ -114,7 +131,11 @@ class GuardTests(unittest.TestCase):
     def test_signalling_rejects_stale_process_identity(self):
         proc = self.table.inspect(self.child.pid)
         proc["start_usec"] += 1
-        self.assertFalse(self.table.signal(proc, signal.SIGSTOP))
+        self.assertFalse(self.table.signal(proc, signal.SIGCONT))
+        self.wait_status(False)
+
+    def test_signal_boundary_rejects_freezing_even_with_current_identity(self):
+        self.assertFalse(self.table.signal(self.table.inspect(self.child.pid), signal.SIGSTOP))
         self.wait_status(False)
 
     def test_only_exact_executable_is_selected(self):
@@ -122,6 +143,7 @@ class GuardTests(unittest.TestCase):
         self.assertEqual([p["pid"] for p in self.table.snapshot()], [self.child.pid])
 
     def test_state_is_private_and_repeat_checks_do_not_rewrite_it(self):
+        self.seed_legacy_suspension()
         self.step(False)
         self.wait_status(True)
         stamp = self.state.stat().st_mtime_ns
@@ -129,19 +151,13 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(self.state.stat().st_mtime_ns, stamp)
         self.assertEqual(self.state.stat().st_mode & 0o777, 0o600)
 
-    def test_failed_journal_write_does_not_leave_unrecoverable_suspend_intent(self):
+    def test_dark_state_never_acquires_ownership_even_with_unwritable_journal(self):
         blocked_parent = self.root / "not-a-directory"
         blocked_parent.write_text("occupied")
         self.controller.state_path = blocked_parent / "owned.json"
-        with self.assertRaises(OSError):
-            self.step(False)
+        self.step(False)
         self.wait_status(False)
         self.assertFalse(self.controller.owned)
-        self.controller.state_path = self.state
-        self.step(False, 1)
-        self.wait_status(True)
-        recovered = self.make_controller()
-        self.assertTrue(recovered.owned)
 
     def test_reused_pid_with_another_executable_does_not_block_rollback(self):
         stale = self.table.inspect(self.child.pid)
@@ -151,12 +167,14 @@ class GuardTests(unittest.TestCase):
         self.step(True, 4)
         self.assertFalse(self.controller.owned)
 
-    def test_foreign_pid_in_old_journal_does_not_block_other_service_suspension(self):
+    def test_foreign_pid_in_old_journal_does_not_block_owned_cleanup(self):
+        self.seed_legacy_suspension()
         stale = self.table.inspect(self.child.pid)
         stale["pid"] = 1
         self.controller.owned["1"] = stale
-        self.step(False)
-        self.wait_status(True)
+        self.step(True, 1)
+        self.step(True, 4)
+        self.wait_status(False)
         self.assertNotIn("1", self.controller.owned)
 
     def test_disabled_guard_does_not_suspend_a_dark_desktop_service(self):
@@ -165,6 +183,7 @@ class GuardTests(unittest.TestCase):
         self.assertFalse(self.controller.owned)
 
     def test_opt_out_waits_for_safe_desktop_then_releases_ownership(self):
+        self.seed_legacy_suspension()
         self.step(False)
         self.wait_status(True)
         self.controller.step({"allowed": False}, 1, enabled=False)

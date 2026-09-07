@@ -1,10 +1,10 @@
 #!/usr/bin/python3
-"""Pause the signed Computer Use service while the physical desktop is deferred.
+"""Retired process-freezing helper; only clean up existing owned suspensions.
 
-This is a local mitigation, not a patch to Codex. A stopped process cannot issue
-new wake assertions. Existing assertions, a new process before discovery, and a
-display transition between snapshots are not eliminated by polling. No screen
-capture, input, authentication, launch of the service, or power assertion is used.
+Real lock/unlock testing exposed a stall while the IPC service was suspended.
+This version never freezes a process, even with an old enabled preference.
+Existing ownership is retained until safe cleanup; no capture, input, unlock,
+service launch or power assertion is used.
 """
 import argparse
 import ctypes
@@ -31,15 +31,8 @@ READY_SECONDS = 2.0
 
 
 def protection_enabled(path=PREFERENCES):
-    """No implicit consent: missing, old or malformed preferences mean off."""
-    try:
-        if path.stat().st_size > 4096:
-            return False
-        value = json.loads(path.read_text())
-        return (isinstance(value, dict) and value.get("enabled") is True
-                and type(value.get("consentVersion")) is int and value["consentVersion"] == 1)
-    except (OSError, ValueError, TypeError):
-        return False
+    """Old consent cannot re-enable the withdrawn process-freezing behavior."""
+    return False
 
 
 class BsdInfo(ctypes.Structure):
@@ -100,6 +93,8 @@ class DarwinProcesses:
         raise RuntimeError("process_list_truncated")
 
     def signal(self, expected, sig):
+        if sig != signal.SIGCONT:
+            return False  # This helper is now restricted to legacy cleanup.
         current = self.inspect(expected["pid"])
         if current is None or identity(current) != identity(expected):
             return False
@@ -181,22 +176,7 @@ class ServiceGuard:
                     self.save()
         for proc in snapshot:
             key = str(proc["pid"])
-            if not ready:
-                if enabled is not True:
-                    continue
-                if proc["status"] == 4:
-                    continue  # Never claim a suspension performed by somebody else.
-                if key not in self.owned:
-                    self.owned[key] = proc.copy()
-                    try:
-                        self.save()  # Persist intent BEFORE stopping, to survive a crash.
-                    except Exception:
-                        del self.owned[key]
-                        raise
-                if self.processes.signal(proc, signal.SIGSTOP):
-                    self.emit({"event": "suspended", "pid": proc["pid"],
-                               "reason": status.get("reason", "state_unknown")})
-            elif (key in self.owned and identity(proc) == identity(self.owned[key])
+            if (ready and key in self.owned and identity(proc) == identity(self.owned[key])
                   and now - self.ready_since >= READY_SECONDS):
                 if not self.ready_check():
                     self.ready_since = None

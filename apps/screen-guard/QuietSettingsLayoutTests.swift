@@ -19,6 +19,9 @@ enum QuietSettingsLayoutTests {
         func inspect(_ view: NSView) {
             if let button = view as? NSButton, button.title == "启用 Codex 防亮屏保护" || button.title == "启用这条规则" {
                 precondition(button.state == .off, "New settings must visibly show protection off")
+                if button.title == "启用 Codex 防亮屏保护" {
+                    precondition(!button.isEnabled, "Withdrawn freezing protection must not be available in settings")
+                }
                 switches += 1
             }
             if let field = view as? NSTextField {
