@@ -15,8 +15,8 @@ final class QuietProtectionSettings: NSWindowController {
         super.init(window: window)
         let title = NSTextField(labelWithString: "让屏幕安静休息")
         title.font = .systemFont(ofSize: 23, weight: .semibold)
-        let detail = NSTextField(wrappingLabelWithString: "此版本已停用通过暂停电脑操作服务来防止亮屏的功能。实测出现指纹解锁卡住，兼容性尚未解决。")
-        let effects = NSTextField(wrappingLabelWithString: "按键规则、应用和项目选择仍可使用。\n\n任务仍可在操作桌面前检查熄屏和锁屏状态，暂缓桌面操作；这不能阻止 Codex 主程序自身的所有亮屏请求。\n\n轻醒不会自动解锁，也不会替你开启屏幕历史记录。")
+        let detail = NSTextField(wrappingLabelWithString: "自动熄屏仍可使用。锁屏期间，轻醒不再因倒计时到期而关屏，身份验证交由 macOS 处理；正常解锁后才重新开始桌面倒计时。")
+        let effects = NSTextField(wrappingLabelWithString: "普通软件也能向 macOS 请求亮屏，轻醒目前不能统一拦截所有软件。通过冻结电脑操作服务防亮屏的旧方案曾伴随指纹解锁卡住，已撤下。\n\n需要操作桌面的任务可以先检查熄屏和锁屏状态，暂缓桌面操作；代码、构建等后台工作可继续。\n\n按键规则、应用和项目选择仍可使用。轻醒不会自动解锁，也不会替你开启屏幕历史记录。")
         effects.textColor = .secondaryLabelColor
         let choice = NSTextField(wrappingLabelWithString: "开关暂不可开启。旧版已开启的保护仍可关闭；新版本启动时也会关闭旧选择。")
         choice.textColor = .secondaryLabelColor
