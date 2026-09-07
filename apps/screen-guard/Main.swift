@@ -1,13 +1,32 @@
 import AppKit
+import OSLog
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var guardController: ScreenGuardController?
     var notice: ScreenNotice?
     var onExit: DispatchWorkItem?
+    var buttonController: ScreenButtonController?
+    var settingsController: QuietProtectionSettings?
+    var inputRuntime: ScreenInputRuntime?
+    private var receivedURL = false
+    private var role: String { Bundle.main.object(forInfoDictionaryKey: "ScreenGuardRole") as? String ?? "off" }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if Bundle.main.object(forInfoDictionaryKey: "ScreenGuardRole") as? String == "on" {
+        if role == "controller" {
+            let controller = buttonController ?? ScreenButtonController()
+            buttonController = controller
+            if CommandLine.arguments.contains("--listen") {
+                inputRuntime = ScreenInputRuntime(controller: controller)
+                inputRuntime?.start()
+            } else if !receivedURL && notification.userInfo?[NSApplication.launchIsDefaultUserInfoKey] as? Bool == true {
+                controller.press()
+            }
+        } else if role == "on" {
             turnOn()
+        } else if role == "settings" {
+            let settings = QuietProtectionSettings()
+            settingsController = settings
+            settings.present()
         } else {
             let controller = ScreenGuardController { NSApp.terminate(nil) }
             guardController = controller
@@ -17,9 +36,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if role == "controller" {
+            buttonController?.press()
+            return false
+        }
+        if let settingsController { settingsController.present(); return false }
         if let controller = guardController { controller.startCountdown() }
         else { turnOn() }
         return false
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard role == "controller" else { return }
+        receivedURL = true
+        if buttonController == nil { buttonController = ScreenButtonController() }
+        for url in urls {
+            guard let id = ScreenInputContract.mappedRuleID(from: url), let rule = ScreenInputRuleStore().mappedRule(id) else { continue }
+            buttonController?.perform(rule)
+        }
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        settingsController != nil
     }
 
     private func turnOn() {
@@ -52,8 +90,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct ScreenGuardApplication {
     static func main() {
+        // Retire an old opt-in without installing a job, signalling a service,
+        // activating an application or changing authentication/display state.
+        do { try QuietProtectionManager().disable() }
+        catch { Logger(subsystem: "local.xy.screen-guard", category: "quiet-protection").error("Could not disable legacy protection: \(error.localizedDescription, privacy: .public)") }
+        if CommandLine.arguments.contains("--request-input-access") {
+            _ = CGRequestListenEventAccess()
+            return
+        }
         let application = NSApplication.shared
-        application.setActivationPolicy(.accessory)
+        let isController = Bundle.main.object(forInfoDictionaryKey: "ScreenGuardRole") as? String == "controller"
+        application.setActivationPolicy(isController ? .prohibited : .accessory)
         let delegate = AppDelegate()
         application.delegate = delegate
         application.run()

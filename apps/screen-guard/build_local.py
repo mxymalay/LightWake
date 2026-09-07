@@ -14,13 +14,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 BUILD = ROOT / "build"
-SOURCES = ["GuardState.swift", "ControlStore.swift", "ScreenGuard.swift", "Main.swift"]
+SOURCES = ["GuardState.swift", "ControlStore.swift", "ScreenGuard.swift", "ScreenButtonState.swift", "ScreenButtonController.swift", "ScreenInputRules.swift", "ScreenInputRuntime.swift", "InputRulesSettingsView.swift", "QuietProtection.swift", "QuietProtectionSettings.swift", "Main.swift"]
 APPS = [
     ("关闭屏幕.app", "local.xy.turn-off-display", "off", "Off-Info.plist"),
     ("开启屏幕.app", "local.xy.turn-on-display", "on", "On-Info.plist"),
+    ("轻醒按键.app", "local.xy.screen-guard-control", "controller", "Controller-Info.plist"),
+    ("轻醒设置.app", "local.xy.lightwake-settings", "settings", "Settings-Info.plist"),
 ]
-VERSION = "2.2.1"
-BUILD_NUMBER = "5"
+VERSION = "2.5.4"
+BUILD_NUMBER = "12"
+QUIET_RESOURCES = ["quiet_service_guard.py", "quiet_desktop_check.py", "quiet-sky.mjs"]
 
 
 def run(*arguments: str | Path) -> None:
@@ -62,6 +65,9 @@ def main() -> None:
     for source in SOURCES:
         if not (ROOT / source).is_file():
             raise FileNotFoundError(ROOT / source)
+    for name in QUIET_RESOURCES:
+        if not (ROOT / "resources/quiet-desktop" / name).is_file():
+            raise FileNotFoundError(name)
 
     sdk = subprocess.check_output(
         ["/usr/bin/xcrun", "--sdk", "macosx", "--show-sdk-path"], text=True
@@ -71,7 +77,7 @@ def main() -> None:
     ).strip()
     BUILD.mkdir(parents=True, exist_ok=True)
 
-    # Sign and verify both staging bundles before replacing previous build output.
+    # Sign and verify all staging bundles before replacing previous build output.
     with tempfile.TemporaryDirectory(prefix=".staging-", dir=BUILD) as temporary:
         staging = Path(temporary)
         executable = staging / "ScreenGuard"
@@ -112,8 +118,16 @@ def main() -> None:
             info = dict(original_info)
             info["CFBundleShortVersionString"] = VERSION
             info["CFBundleVersion"] = BUILD_NUMBER
-            generated_icon = icons / f"{role}.icns"
+            generated_icon = icons / f"{'off' if role in ('controller', 'settings') else role}.icns"
             shutil.copy2(generated_icon, icon_path(app, info))
+            if role == "settings":
+                quiet = app / "Contents/Resources/quiet-desktop"
+                quiet.mkdir()
+                for resource in QUIET_RESOURCES:
+                    origin = ROOT / "resources/quiet-desktop" / resource
+                    shutil.copy2(origin, quiet / resource)
+                    if digest(origin) != digest(quiet / resource):
+                        raise RuntimeError(f"Quiet protection resource mismatch: {resource}")
             plist_path = app / "Contents/Info.plist"
             with plist_path.open("wb") as stream:
                 plistlib.dump(info, stream, sort_keys=False)

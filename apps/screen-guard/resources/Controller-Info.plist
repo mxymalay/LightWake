@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDisplayName</key><string>轻醒按键</string>
+    <key>CFBundleExecutable</key><string>ScreenGuard</string>
+    <key>CFBundleIconFile</key><string>ScreenGuard</string>
+    <key>CFBundleIdentifier</key><string>local.xy.screen-guard-control</string>
+    <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+    <key>CFBundleName</key><string>轻醒按键</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleShortVersionString</key><string>2.3.0</string>
+    <key>CFBundleVersion</key><string>6</string>
+    <key>LSMinimumSystemVersion</key><string>26.0</string>
+    <key>LSBackgroundOnly</key><true/>
+    <key>NSPrincipalClass</key><string>NSApplication</string>
+    <key>NSSupportsAutomaticTermination</key><false/>
+    <key>ScreenGuardRole</key><string>controller</string>
+    <key>ScreenInputRulesVersion</key><integer>1</integer>
+    <key>CFBundleURLTypes</key>
+    <array><dict><key>CFBundleURLName</key><string>LightWake input rule</string>
+    <key>CFBundleURLSchemes</key><array><string>lightwake</string></array></dict></array>
+</dict>
+</plist>

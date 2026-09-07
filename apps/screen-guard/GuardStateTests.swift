@@ -253,7 +253,7 @@ struct GuardStateTests {
             _ = state.updateSession(.locked, now: 50)
             _ = state.screenDidWake(now: 100)
             if expiredSleepAlreadyRequested {
-                expect(state.tick(now: 120), .sleepNow, "locked accidental wake still expires")
+                expect(state.tick(now: 120), .waitingForWake, "locked deadline cannot interrupt authentication")
             }
             _ = state.updateSession(.unlocked, now: 145)
             expect(state.tick(now: 145), .reminder, "unlock cancels overdue wake or retry action")
@@ -261,19 +261,23 @@ struct GuardStateTests {
             expect(state.tick(now: 165), .sleepNow, "late unlock uses only its new deadline")
         }
 
-        // Locked sessions keep accidental-wake expiry but never show desktop UI.
+        // An elapsed deadline is not evidence that authentication is idle.
         do {
             var state = GuardState()
             _ = state.updateSession(.locked, now: 0)
             expect(state.startCountdown(now: 10), .waitingForWake, "locked explicit close hides initial banner")
             expect(state.tick(now: 13), .waitingForWake, "locked explicit close hides initial digits")
-            expect(state.tick(now: 15), .sleepNow, "locked explicit close preserves five-second deadline")
+            expect(state.tick(now: 15), .waitingForWake, "initial deadline yields to authentication")
             _ = state.screenDidSleep(now: 16)
             expect(state.screenDidWake(now: 100), .waitingForWake, "locked accidental wake has no desktop banner")
             expectChange(state.updateSession(.locked, now: 110), false, "duplicate lock cannot alter deadline")
             expect(state.tick(now: 119.999), .waitingForWake, "locked accidental wake stays bright for twenty seconds")
-            expect(state.tick(now: 120), .sleepNow, "locked accidental wake still sleeps at twenty seconds")
-            expect(state.tick(now: 120), .waitingForWake, "locked sleep is one-shot")
+            expect(state.tick(now: 120), .waitingForWake, "twenty-second deadline yields to authentication")
+            expect(state.tick(now: 1_800), .waitingForWake, "slow or retried authentication has no forced sleep deadline")
+            expect(state.enable(now: 1_801), .waitingForWake, "a queued immediate action cannot sleep a locked session")
+            _ = state.updateSession(.unlocked, now: 1_900)
+            expect(state.tick(now: 1_900), .reminder, "completed authentication creates a fresh desktop window")
+            expect(state.tick(now: 1_920), .sleepNow, "normal desktop auto-sleep still works")
         }
 
         // An inactive or unknown console session cannot send a global sleep command.

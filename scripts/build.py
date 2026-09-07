@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build LightWake's screen-off and screen-on apps using the selected Xcode toolchain."""
+"""Build LightWake applications using the selected Xcode toolchain; do not install or launch."""
 from pathlib import Path
 import platform
 import subprocess
@@ -14,4 +14,4 @@ if __name__ == "__main__":
         [sys.executable, str(ROOT / "apps/screen-guard/build_local.py")],
         cwd=ROOT, check=True,
     )
-    print("Both LightWake applications built and signed. See apps/screen-guard/build/.")
+    print("LightWake applications built and signed. See apps/screen-guard/build/.")

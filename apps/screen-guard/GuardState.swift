@@ -32,8 +32,8 @@ struct GuardState {
     private var mode: Mode = .inactive
     private var session: GuardSession = .unlocked
 
-    /// Password entry has its own wake budget. Returning to the desktop grants
-    /// a fresh visible window and invalidates any expired locked-session retry.
+    /// Authentication belongs to macOS and has no LightWake timeout. Returning
+    /// to the desktop grants a fresh visible window, discarding old deadlines.
     @discardableResult
     mutating func updateSession(_ newSession: GuardSession, now: TimeInterval) -> Bool {
         guard newSession != session else { return false }
@@ -80,7 +80,7 @@ struct GuardState {
 
     /// Poll freely. Refreshes and duplicate wake notifications never reset time.
     mutating func tick(now: TimeInterval) -> GuardPhase {
-        guard session != .unavailable else {
+        guard session == .unlocked else {
             return isEnabled ? .waitingForWake : .inactive
         }
         switch mode {
@@ -110,6 +110,7 @@ struct GuardState {
         // An unconfirmed sleep command never unlocks a fresh wake window.
         // Retry from the actual request time so a delayed timer cannot burst.
         mode = .waitingForSleep(retryAt: now + 20)
-        return session == .unavailable ? .waitingForWake : .sleepNow
+        // A queued request is never permission to interrupt authentication.
+        return session == .unlocked ? .sleepNow : .waitingForWake
     }
 }
