@@ -6,9 +6,9 @@ final class QuietProtectionSettings: NSWindowController {
     private let status = NSTextField(wrappingLabelWithString: "")
     private var timer: Timer?
 
-    init(manager: QuietProtectionManager = QuietProtectionManager()) {
+    init(manager: QuietProtectionManager = QuietProtectionManager(), inputStore: ScreenInputRuleStore = ScreenInputRuleStore()) {
         self.manager = manager
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 500),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 660, height: 780),
                               styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         window.title = "轻醒设置"
         window.isReleasedWhenClosed = false
@@ -29,7 +29,14 @@ final class QuietProtectionSettings: NSWindowController {
         stack.alignment = .leading
         stack.spacing = 16
         stack.translatesAutoresizingMaskIntoConstraints = false
-        let content = window.contentView!
+        let tabs = NSTabView(frame: window.contentView!.bounds)
+        tabs.autoresizingMask = [.width, .height]
+        let input = NSTabViewItem(identifier: "input-rules"); input.label = "按键规则"
+        input.view = InputRulesSettingsView(store: inputStore)
+        let protection = NSTabViewItem(identifier: "quiet-protection"); protection.label = "防亮屏保护"
+        let content = NSView(); protection.view = content
+        tabs.addTabViewItem(input); tabs.addTabViewItem(protection)
+        window.contentView!.addSubview(tabs)
         content.addSubview(stack)
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 28),

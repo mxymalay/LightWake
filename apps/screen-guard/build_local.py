@@ -14,14 +14,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 BUILD = ROOT / "build"
-SOURCES = ["GuardState.swift", "ControlStore.swift", "ScreenGuard.swift", "QuietProtection.swift", "QuietProtectionSettings.swift", "Main.swift"]
+SOURCES = ["GuardState.swift", "ControlStore.swift", "ScreenGuard.swift", "ScreenButtonState.swift", "ScreenButtonController.swift", "ScreenInputRules.swift", "ScreenInputRuntime.swift", "InputRulesSettingsView.swift", "QuietProtection.swift", "QuietProtectionSettings.swift", "Main.swift"]
 APPS = [
     ("关闭屏幕.app", "local.xy.turn-off-display", "off", "Off-Info.plist"),
     ("开启屏幕.app", "local.xy.turn-on-display", "on", "On-Info.plist"),
+    ("轻醒按键.app", "local.xy.screen-guard-control", "controller", "Controller-Info.plist"),
     ("轻醒设置.app", "local.xy.lightwake-settings", "settings", "Settings-Info.plist"),
 ]
-VERSION = "2.4.0"
-BUILD_NUMBER = "7"
+VERSION = "2.5.0"
+BUILD_NUMBER = "8"
 QUIET_RESOURCES = ["quiet_service_guard.py", "quiet_desktop_check.py", "quiet-sky.mjs"]
 
 
@@ -117,7 +118,7 @@ def main() -> None:
             info = dict(original_info)
             info["CFBundleShortVersionString"] = VERSION
             info["CFBundleVersion"] = BUILD_NUMBER
-            generated_icon = icons / f"{'off' if role == 'settings' else role}.icns"
+            generated_icon = icons / f"{'off' if role in ('controller', 'settings') else role}.icns"
             shutil.copy2(generated_icon, icon_path(app, info))
             if role == "settings":
                 quiet = app / "Contents/Resources/quiet-desktop"
