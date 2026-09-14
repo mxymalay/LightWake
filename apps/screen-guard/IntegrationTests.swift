@@ -228,12 +228,12 @@ struct IntegrationTests {
 
         // The session may change while waiting for the cross-process mode lock.
         var sessionReads = 0
-        var unlockOnSecondRead = false
+        var lockOnSecondRead = false
         var raceSession: GuardSession = .unlocked
         let raceNotice = RecordingNotice()
         let race = ScreenGuardController(store: store, notice: raceNotice, now: { clock }, sessionStatus: {
             sessionReads += 1
-            if unlockOnSecondRead && sessionReads >= 2 { return .unlocked }
+            if lockOnSecondRead && sessionReads >= 2 { return .locked }
             return raceSession
         }, sleepDisplay: { sleeps += 1 }, finished: { finishes += 1 })
         clock = 1_000
@@ -241,21 +241,34 @@ struct IntegrationTests {
         clock = 1_005
         race.tick()
         race.screenSlept()
-        raceSession = .locked
-        race.tick()
         clock = 1_100
         race.screenWoke()
         clock = 1_120
         sessionReads = 0
-        unlockOnSecondRead = true
+        lockOnSecondRead = true
+        race.tick()
+        check(sleeps == 7 && raceNotice.title == nil && raceNotice.compactSeconds == nil,
+              "Lock beginning after timer evaluation must cancel sleep at the final action boundary")
+        lockOnSecondRead = false
+        raceSession = .locked
+        for time in [1_121.0, 1_140.0, 1_160.0, 1_500.0] {
+            clock = time
+            race.tick()
+            race.screenWoke()
+            check(sleeps == 7 && raceNotice.title == nil && raceNotice.compactSeconds == nil,
+                  "Locked wake notifications and old retries must never interrupt authentication")
+        }
+        raceSession = .unlocked
+        clock = 1_501
         race.tick()
         check(sleeps == 7 && raceNotice.title?.contains("20") == true,
-              "Unlock between timer evaluation and actual pmset must discard the stale sleep command")
-        raceSession = .unlocked
-        unlockOnSecondRead = false
-        clock = 1_123
+              "Normal authentication completion gets a full desktop window")
+        clock = 1_504
         race.tick()
-        check(raceNotice.compactSeconds == 17, "The final-action check starts the fresh deadline only once")
+        check(raceNotice.compactSeconds == 17, "Unlock starts the fresh deadline only once")
+        clock = 1_521
+        race.tick()
+        check(sleeps == 8, "Automatic screen-off remains functional on the unlocked desktop")
         race.turnOn()
         check(finishes == 6, "Race regression releases the running controller")
 

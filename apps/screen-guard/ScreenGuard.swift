@@ -450,7 +450,46 @@ final class ScreenGuardController: NSObject {
         let off = NSMenuItem(title: "立即关闭屏幕", action: #selector(sleepAgain), keyEquivalent: "")
         off.target = self
         menu.addItem(off)
+        menu.addItem(.separator())
+        let settings = NSMenuItem(title: "轻醒设置（退出熄屏模式）…", action: #selector(openSettings), keyEquivalent: "")
+        settings.target = self
+        menu.addItem(settings)
         item.menu = menu
         statusItem = item
+    }
+
+    @objc private func openSettings() {
+        let sibling = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("轻醒设置.app")
+        let destination = FileManager.default.fileExists(atPath: sibling.path) ? sibling
+            : NSWorkspace.shared.urlForApplication(withBundleIdentifier: "local.xy.lightwake-settings")
+        guard let destination else {
+            let alert = NSAlert()
+            alert.messageText = "找不到轻醒设置"
+            alert.informativeText = "请将构建目录中的「轻醒设置.app」一同复制到应用程序。"
+            // The user requested settings; stop the countdown while they read.
+            try? store.write("off")
+            stop(finish: false)
+            alert.runModal()
+            finished()
+            return
+        }
+        do { try store.write("off") }
+        catch { fail(error); return }
+        stop(finish: false)
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        configuration.addsToRecentItems = false
+        NSWorkspace.shared.openApplication(at: destination, configuration: configuration) { [weak self] _, error in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if let error {
+                    let alert = NSAlert()
+                    alert.messageText = "无法打开轻醒设置"
+                    alert.informativeText = error.localizedDescription
+                    alert.runModal()
+                }
+                self.finished()
+            }
+        }
     }
 }
