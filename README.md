@@ -33,6 +33,14 @@ LightWake 是一款原生 macOS 屏幕工具：关闭显示器时防止电脑因
 python3 scripts/build.py
 ```
 
+若报 `You have not agreed to the Xcode license agreements`：Xcode 跨大版本升级会让许可证同意失效
+（同意记录存在 `/Library/Preferences/com.apple.dt.Xcode.plist` 里，版本对不上当前 Xcode 就不认），
+之后 `swiftc`、`xcrun`、`lipo` 这几个命令行 shim 一律报这个错。在终端里跑一次即可：
+
+```sh
+sudo xcodebuild -license accept
+```
+
 构建产物使用本机临时签名，路径如下：
 
 ```text
@@ -62,6 +70,9 @@ python3 scripts/install.py
 按钮用真正的 Finder 替身，不是符号链接。已在位的按钮不会重建（免得打乱 Finder 记住的
 图标位置），只刷新注释；想强制重建加 `--force-shortcuts`。应用已经在位、只想重放按钮时
 用 `--shortcuts-only`。更新时先退出正在运行的对应应用。
+
+四个应用是**整批**安装的：任何一个装失败（拷贝出错、签名自检不过），这一轮已经换掉的
+全部退回原状 —— 它们是同一个可执行文件换 plist 出来的，是一套，不留新旧混在一起。
 
 自动熄屏模式运行期间，菜单栏中的显示器图标也提供“开启屏幕（退出模式）”和“立即关闭屏幕”。退出模式会释放防止闲置睡眠的声明，电脑随后遵循原有电源设置。
 
