@@ -12,7 +12,7 @@ final class QuietProtectionSettings: NSWindowController {
         let detail = NSTextField(wrappingLabelWithString: "Codex 读取桌面、使用桌面历史记录或执行电脑操作时，可能触发亮屏，尤其是涉及实时截图或窗口检查的任务。")
         let effects = NSTextField(wrappingLabelWithString: "轻醒用于关闭显示器并让后台任务继续运行，无法保证阻止 Codex 或其他软件唤醒显示器。\n\n自动熄屏模式中，屏幕唤醒且桌面已解锁时，轻醒会重新开始 20 秒倒计时。锁屏期间由 macOS 管理显示器，轻醒不执行倒计时关屏，密码和指纹解锁交由系统处理。")
         effects.textColor = .secondaryLabelColor
-        let controls = NSTextField(wrappingLabelWithString: "只有你配置的指定按键才会打开对应应用或项目文件夹。若需要解锁，会等你正常解锁后再打开；普通亮屏不选择应用。需要持续亮屏时，请打开“开启屏幕”退出自动熄屏模式。")
+        let controls = NSTextField(wrappingLabelWithString: "只有你配置的指定按键才会打开对应应用或项目文件夹。若需要解锁，会等你正常解锁后再打开；普通亮屏不选择应用。需要持续亮屏时，双击桌面上的「轻醒」，或从菜单栏图标里退出自动熄屏模式。")
         controls.textColor = .secondaryLabelColor
         let stack = NSStackView(views: [title, detail, effects, controls])
         stack.orientation = .vertical

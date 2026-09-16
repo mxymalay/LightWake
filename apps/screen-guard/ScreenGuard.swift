@@ -45,6 +45,72 @@ protocol ScreenNoticing {
     func hide()
 }
 
+/// 屏幕上出现的那些字。
+///
+/// 抽成常量不是为了复用，是为了**让测试能盯着它们**。3.0 把「关闭屏幕 / 开启屏幕 /
+/// 轻醒按键 / 轻醒设置」四个双击目标合成一个「轻醒」，要是提示语里还让人去双击那个
+/// 已经不存在的东西，用户就会照着一个空位置点 —— 这个错合并时真犯过一次，
+/// 而当时的测试全都在断言"提示显示出来了没有"，没有一条在读它写了什么。
+enum ScreenNoticeText {
+    static let initialReminderTitle = "屏幕将在 5 秒后关闭"
+    static let initialReminderSubtitle = "双击桌面上的「轻醒」可取消"
+    static let wakeReminderTitle = "屏幕将临时亮起 20 秒"
+    static let wakeReminderSubtitle = "需要继续使用？请双击桌面上的「轻醒」"
+    /// 退出熄屏模式时的回执。旧版由「开启屏幕.app」自己亮这一条。
+    static let turnedOnTitle = "已开启屏幕"
+    static let turnedOnSubtitle = "自动熄屏模式已关闭，可以正常使用电脑"
+    /// 全部句子，给"不能指向已退役入口"那条测试用。
+    static let all = [
+        initialReminderTitle, initialReminderSubtitle,
+        wakeReminderTitle, wakeReminderSubtitle,
+        turnedOnTitle, turnedOnSubtitle,
+    ]
+}
+
+/// 一条"亮一下就走"的提示。
+///
+/// 退出熄屏模式要告诉用户"屏幕开了"。旧版是「开启屏幕.app」亮一条横幅、整个 app
+/// 1.5 秒后退出，横幅跟着进程一起消失；轻醒现在是常驻进程，没有"跟着退出"这回事，
+/// 得自己收 —— 于是带出两个时序问题：
+///
+///  1. 用户在这 1.5 秒内又进了熄屏模式，迟到的 hide 不能把新的倒计时提示一起藏掉
+///  2. 连点两次退出，只有最后一条该决定什么时候收
+///
+/// 定时器是注入的，测试里可以立刻把时间推到"该收"的那一刻，不用真的等 1.5 秒。
+final class TransientNotice {
+    typealias Scheduler = (TimeInterval, @escaping () -> Void) -> Void
+
+    private let notice: ScreenNoticing
+    private let schedule: Scheduler
+    /// 当前挂着的那次收走。谁手里的令牌还在，谁才有权 hide —— 被取消或被顶替的
+    /// 回调会发现令牌已经过时，安静退出。
+    private var pending: UUID?
+
+    init(notice: ScreenNoticing, schedule: @escaping Scheduler = TransientNotice.afterDelay) {
+        self.notice = notice
+        self.schedule = schedule
+    }
+
+    static func afterDelay(seconds: TimeInterval, _ work: @escaping () -> Void) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
+    }
+
+    func show(title: String, subtitle: String, seconds: TimeInterval) {
+        cancel()
+        let token = UUID()
+        pending = token
+        notice.show(title: title, subtitle: subtitle, countdown: false)
+        schedule(seconds) { [weak self] in
+            guard let self, self.pending == token else { return }
+            self.pending = nil
+            self.notice.hide()
+        }
+    }
+
+    /// 别的东西要占用这块地方（熄屏模式的提示条）之前必须先取消。
+    func cancel() { pending = nil }
+}
+
 final class CornerCountdownView: NSView {
     let number = NSTextField(labelWithString: "")
 
@@ -374,9 +440,13 @@ final class ScreenGuardController: NSObject {
         lastPhase = phase
         switch phase {
         case .initialReminder:
-            notice.show(title: "屏幕将在 5 秒后关闭", subtitle: "双击桌面上的「开启屏幕」可取消", countdown: false)
+            notice.show(title: ScreenNoticeText.initialReminderTitle,
+                        subtitle: ScreenNoticeText.initialReminderSubtitle,
+                        countdown: false)
         case .reminder:
-            notice.show(title: "屏幕将临时亮起 20 秒", subtitle: "需要继续使用？请双击桌面上的「开启屏幕」", countdown: false)
+            notice.show(title: ScreenNoticeText.wakeReminderTitle,
+                        subtitle: ScreenNoticeText.wakeReminderSubtitle,
+                        countdown: false)
         case .countdown(let seconds):
             notice.showCountdown(seconds: seconds)
         case .sleepNow:

@@ -212,7 +212,12 @@ final class ScreenButtonController {
         }
     }
 
-    private static func wakeDisplay() throws {
+    /// 把显示器从睡眠里叫醒。`caffeinate -u` 是一次性的、幂等的，重复调用无害。
+    ///
+    /// 两处要用它，所以是 internal 的 static：按键路径（`handle` 的 `.keepScreenOn`
+    /// 分支，必须在写 off 的同一个临界区里立刻亮屏）和"退出熄屏模式"
+    /// （`AppDelegate.exitOffMode`，用户点了按钮就得看到屏幕亮）。共用这一份实现。
+    static func wakeDisplay() throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/caffeinate")
         process.arguments = ["-u", "-t", "2"]

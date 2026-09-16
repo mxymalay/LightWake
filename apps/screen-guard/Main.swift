@@ -22,6 +22,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var buttonController: ScreenButtonController?
     private var inputRuntime: ScreenInputRuntime?
     private var statusItem: NSStatusItem?
+    /// 屏幕上那条提示。熄屏模式和"已开启屏幕"回执共用**一个**实例 ——
+    /// 两个实例会在屏幕上叠出两块浮窗，而且各自的 hide 管不着对方。
+    private let notice = ScreenNotice()
+    /// 「已开启屏幕」的回执。见 `TransientNotice`：它管的是"什么时候收走"。
+    private lazy var turnedOnNotice = TransientNotice(notice: notice)
     /// 最近一次处理 URL 的时刻。冷启动时 macOS 会先送 URL 再送 reopen，
     /// 那一下 reopen 不是"用户双击了按钮"，不能让它把刚做的动作又切回去。
     private var lastURLHandling: TimeInterval = -.infinity
@@ -87,9 +92,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func enterOffMode() {
         guard !guardRunning else { return }
+        // 「已开启屏幕」的自动收走要是还挂着，它会把这一轮的倒计时提示一起藏掉
+        turnedOnNotice.cancel()
         // 每次进入都用新的控制器：它的生命周期就是"一段熄屏模式"，
         // 这样 stop() 里那套取消逻辑（定时器、通知观察者、电源断言）不用考虑复用。
-        let controller = ScreenGuardController(finished: { [weak self] in
+        let controller = ScreenGuardController(notice: notice, finished: { [weak self] in
             self?.guardController = nil
             self?.refreshMenu()
         })
@@ -103,9 +110,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshMenu()
     }
 
+    /// 退出熄屏模式。三件事，缺一不可：
+    ///
+    ///  1. 停状态机 —— `turnOn()`：写 off、收提示条、放掉电源断言
+    ///  2. 把屏幕唤醒 —— 熄屏模式刚才用 pmset 关了屏，用户此刻可能正对着黑屏
+    ///  3. **告诉用户开了**
+    ///
+    /// 第 3 件旧版是「开启屏幕.app」自己亮一条横幅做的（然后整个 app 1.5 秒后退出，
+    /// 横幅跟着消失）。合成单 app 时漏掉了，用户点了按钮只看到提示条无声消失，
+    /// 不知道到底生效没有。
     private func exitOffMode() {
         guardController?.turnOn()
         guardController = nil
+        try? ScreenButtonController.wakeDisplay()
+        turnedOnNotice.show(title: ScreenNoticeText.turnedOnTitle,
+                            subtitle: ScreenNoticeText.turnedOnSubtitle,
+                            seconds: 1.5)
         refreshMenu()
     }
 

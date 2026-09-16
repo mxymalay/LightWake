@@ -31,6 +31,7 @@ def main():
         ("quiet-protection", sg, ["QuietProtection.swift", "QuietProtectionTests.swift"], [], []),
         ("quiet-settings-layout", sg, ["GuardState.swift", "ControlStore.swift", "ScreenGuard.swift", "ScreenButtonState.swift", "ScreenButtonController.swift", "ScreenInputRules.swift", "ScreenInputRuntime.swift", "InputRulesSettingsView.swift", "QuietProtection.swift", "QuietProtectionSettings.swift", "QuietSettingsLayoutTests.swift"], [], []),
         ("guard-integration", sg, ["GuardState.swift", "ControlStore.swift", "ScreenGuard.swift", "IntegrationTests.swift"], [], [str(output)]),
+        ("screen-notice", sg, ["GuardState.swift", "ControlStore.swift", "ScreenGuard.swift", "ScreenNoticeTests.swift"], [], []),
     ]
     if args.visual:
         suites.append(("notice-animation", sg, ["GuardState.swift", "ControlStore.swift", "ScreenGuard.swift", "NoticeAnimationTests.swift"], [], [str(output)]))

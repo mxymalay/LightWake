@@ -23,7 +23,7 @@ struct NoticeAnimationTests {
             try bitmap.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent(name))
         }
 
-        notice.show(title: "屏幕将临时亮起 20 秒", subtitle: "双击桌面上的「开启屏幕」可取消")
+        notice.show(title: ScreenNoticeText.wakeReminderTitle, subtitle: ScreenNoticeText.wakeReminderSubtitle)
         check(!notice.panels.isEmpty, "The banner must appear on an attached screen")
         let expanded = notice.panels.map(\.frame)
         check(notice.panels.allSatisfy { $0.isVisible && !$0.isKeyWindow && $0.ignoresMouseEvents },
@@ -54,7 +54,7 @@ struct NoticeAnimationTests {
                   "Later seconds, including the last five, stay at the corner without a new banner")
         }
 
-        notice.show(title: "屏幕将在 5 秒后关闭", subtitle: "双击「开启屏幕」可取消")
+        notice.show(title: ScreenNoticeText.initialReminderTitle, subtitle: ScreenNoticeText.initialReminderSubtitle)
         notice.showCountdown(seconds: 2)
         advance(0.08)
         notice.hide()
@@ -62,10 +62,10 @@ struct NoticeAnimationTests {
         check(notice.panels.allSatisfy { !$0.isVisible } && notice.shownSeconds == nil,
               "Cancelling during motion cannot bring the countdown back")
 
-        notice.show(title: "屏幕将在 5 秒后关闭", subtitle: "双击「开启屏幕」可取消")
+        notice.show(title: ScreenNoticeText.initialReminderTitle, subtitle: ScreenNoticeText.initialReminderSubtitle)
         notice.showCountdown(seconds: 2)
         advance(0.08)
-        notice.show(title: "屏幕将在 5 秒后关闭", subtitle: "双击「开启屏幕」可取消")
+        notice.show(title: ScreenNoticeText.initialReminderTitle, subtitle: ScreenNoticeText.initialReminderSubtitle)
         let restarted = notice.panels.map(\.frame)
         advance(0.5)
         check(notice.panels.map(\.frame) == restarted && notice.shownSeconds == nil && notice.shownTitle != nil,

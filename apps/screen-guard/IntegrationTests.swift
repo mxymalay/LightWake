@@ -27,7 +27,12 @@ struct IntegrationTests {
         _ = NSApplication.shared
         NSApp.setActivationPolicy(.accessory)
         let directory = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
-        let store = ScreenControlStore(directory: directory.appendingPathComponent("integration-state"))
+        // 运行状态放系统临时目录，不放 .build：它是"跑一次就该消失"的东西，
+        // 留在构建产物目录里只会在下次运行时变成残渣 —— 实测上一次遗留的
+        // .lock 足以让下一次直接跑不起来（写 mode 时报 EPERM）。
+        // 产物（下面那张预览图）才留在 directory 里，那是给人看的。
+        let store = ScreenControlStore(directory: FileManager.default.temporaryDirectory
+            .appendingPathComponent("lightwake-integration-\(UUID().uuidString)"))
         defer { try? FileManager.default.removeItem(at: store.directory) }
         var clock: TimeInterval = 90
         var sleeps = 0
@@ -272,22 +277,32 @@ struct IntegrationTests {
         race.turnOn()
         check(finishes == 6, "Race regression releases the running controller")
 
-        let canvas = NSView(frame: NSRect(x: 0, y: 0, width: 554, height: 260))
-        let reminder = NoticeView(frame: NSRect(x: 12, y: 136, width: 530, height: 112))
-        reminder.update(title: "屏幕将临时亮起 20 秒", subtitle: "需要继续使用？请双击桌面上的「开启屏幕」", countdown: false)
-        let initialReminder = NoticeView(frame: NSRect(x: 12, y: 12, width: 530, height: 112))
-        initialReminder.update(title: "5 秒后关闭屏幕", subtitle: "双击桌面上的「开启屏幕」可取消", countdown: false)
-        canvas.addSubview(reminder)
-        canvas.addSubview(initialReminder)
+        // 三种会出现在屏幕上的提示，一张图看全 —— 包括退出熄屏模式那条回执。
+        // 之前这张图只画了两种倒计时提示，回执的文案就没有任何地方盯着，
+        // 合并四个 app 时它连"还该不该存在"都没人问。
+        let previews = [
+            (ScreenNoticeText.wakeReminderTitle, ScreenNoticeText.wakeReminderSubtitle, "20 秒窗口的提示"),
+            (ScreenNoticeText.initialReminderTitle, ScreenNoticeText.initialReminderSubtitle, "进入熄屏模式的提示"),
+            (ScreenNoticeText.turnedOnTitle, ScreenNoticeText.turnedOnSubtitle, "退出熄屏模式的回执"),
+        ]
+        let canvas = NSView(frame: NSRect(x: 0, y: 0, width: 554, height: 12 + 124 * previews.count))
+        var banners: [(view: NoticeView, label: String)] = []
+        for (index, preview) in previews.enumerated() {
+            let banner = NoticeView(frame: NSRect(x: 12, y: 12 + 124 * (previews.count - 1 - index), width: 530, height: 112))
+            banner.update(title: preview.0, subtitle: preview.1, countdown: false)
+            canvas.addSubview(banner)
+            banners.append((banner, preview.2))
+        }
         let window = NSWindow(contentRect: canvas.bounds, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = canvas
         guard let bitmap = canvas.bitmapImageRepForCachingDisplay(in: canvas.bounds) else { fatalError("Preview image unavailable") }
         canvas.cacheDisplay(in: canvas.bounds, to: bitmap)
         guard let png = bitmap.representation(using: .png, properties: [:]) else { fatalError("PNG unavailable") }
         try png.write(to: directory.appendingPathComponent("notice-preview.png"))
-        check(reminder.title.intrinsicContentSize.width < 420 && reminder.subtitle.intrinsicContentSize.width < 420, "Chinese reminder must fit without truncation")
-        check(initialReminder.title.intrinsicContentSize.width < 420 && initialReminder.subtitle.intrinsicContentSize.width < 420,
-              "Initial three-second reminder must fit without truncation")
+        for (banner, label) in banners {
+            check(banner.title.intrinsicContentSize.width < 420 && banner.subtitle.intrinsicContentSize.width < 420,
+                  "\(label) must fit without truncation")
+        }
         print("PASS: \(checks) controller and cancellation checks; preview rendered; no real sleep command executed.")
     }
 }
