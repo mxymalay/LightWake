@@ -6,6 +6,8 @@ import subprocess
 import sys
 import tempfile
 
+import swift_toolchain
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -15,6 +17,7 @@ def main():
     args = parser.parse_args()
     if sys.platform != "darwin":
         parser.error("These tests use macOS AppKit and IOKit.")
+    compile_command = swift_toolchain.swift_compile_command()
     output = ROOT / ".build/tests"
     output.mkdir(parents=True, exist_ok=True)
     sg = ROOT / "apps/screen-guard"
@@ -35,10 +38,11 @@ def main():
         for name, directory, sources, flags, arguments in suites:
             executable = Path(temporary) / name
             print(f"Running {name}...", flush=True)
-            subprocess.run(["xcrun", "swiftc", "-parse-as-library", *flags,
+            subprocess.run([*compile_command, "-parse-as-library", *flags,
                             *(str(directory / source) for source in sources), "-o", str(executable)], check=True)
             subprocess.run([str(executable), *arguments], check=True)
-    subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", str(sg / "tests"), "-v"], check=True)
+    for tests in (sg / "tests", ROOT / "scripts/tests"):
+        subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", str(tests), "-v"], check=True)
     print("All selected test suites passed.")
 
 

@@ -4,13 +4,17 @@ import os
 from pathlib import Path
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
 
 MODULE = Path(__file__).resolve().parents[1] / "resources/quiet-desktop/quiet_service_guard.py"
-import sys
 sys.path.insert(0, str(MODULE.parent))
+# 工具链定位在仓库根的 scripts/：/usr/bin/cc 会被 Xcode 许可证挡住，那里会退回
+# 直调 Xcode 包里的 clang（并补上它需要的 -isysroot）。
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
+import swift_toolchain  # noqa: E402
 
 
 class GuardTests(unittest.TestCase):
@@ -25,7 +29,7 @@ class GuardTests(unittest.TestCase):
         self.worker = self.root / "quiet-guard-test-worker"
         source = self.root / "worker.c"
         source.write_text('#include <unistd.h>\nint main(void) { for (;;) { write(1,"x",1); usleep(20000); } }\n')
-        subprocess.run(["/usr/bin/cc", str(source), "-o", str(self.worker)], check=True,
+        subprocess.run([*swift_toolchain.c_compile_command(), str(source), "-o", str(self.worker)], check=True,
                        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         self.child = subprocess.Popen([str(self.worker)], stdout=subprocess.PIPE)
         self.addCleanup(self.close_child)
