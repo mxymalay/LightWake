@@ -1,30 +1,29 @@
 #!/usr/bin/env python3
-"""把已构建的轻醒应用装到 /Applications，并在桌面放好快捷按钮。
+"""把已构建的轻醒装到 /Applications，并在桌面放好快捷按钮。
 
 和 build_local.py 分工：那个只构建和签名（"without installing or launching"），
 这个只安装和放按钮。可以重复跑——同名按钮会被更新，不会堆出好几份。
 
-装应用是**整批**的：四个 app 是同一个可执行文件换 plist 出来的，属于一套。任何一个
-装失败（ditto 出错、签名自检不过）就把这一轮已经换掉的全部退回原状，不留混版。
+3.0 起轻醒只有**一个** app。以前是四个（关闭屏幕 / 开启屏幕 / 轻醒按键 / 轻醒设置），
+同一个可执行文件换 plist 出来的；那三个"屏幕动作"本来就是同一个反转的两端
+（见 ScreenButtonState.action），所以双击「轻醒」就是切换，设置收进常驻的菜单栏图标。
+
 替换下来的旧版一律挪进 ~/Documents/ProjectArchive/service-backups/<日期>-轻醒装机/，
-不删。
+不删。3.0 之前的四个 app 和四个桌面按钮也一并归档 —— 它们还留在原地只会让人点错。
 
 桌面按钮：
-    关闭屏幕（合盖不休） → 关闭屏幕.app
-    开启屏幕             → 开启屏幕.app
-    轻醒设置             → 轻醒设置.app
-    轻醒按键             → 轻醒按键.app
+    轻醒 → 轻醒.app
 
-"合盖不休"是提醒：轻醒关屏模式持有 PreventUserIdleSystemSleep 电源声明，只在用户
-手动停（双击「开启屏幕」）或应用退出时释放。合盖不会让它放手，机器停在浅睡状态
-（DarkWake）里反复醒来，任务继续跑——所以合盖也不等于"收工了"。
-这是有意保留的行为（详见 docs/architecture.md），写在按钮上让人一眼看到。
+关屏模式持有 PreventUserIdleSystemSleep 电源声明，只在用户手动停（再双击一次
+「轻醒」、菜单栏退出、或按键规则取消）或应用退出时释放。**合盖不会让它放手**，
+机器停在浅睡状态（DarkWake）里反复醒来，任务继续跑——所以合盖也不等于"收工了"。
+这是有意保留的行为（详见 docs/architecture.md），按钮的 Finder 注释里也写了。
 
 本脚本不构建，只安装。先构建：
     python3 scripts/build.py
 若它报 "You have not agreed to the Xcode license"，先在终端里跑一次
     sudo xcodebuild -license accept
-（Xcode 跨大版本升级会让许可证同意失效，之后 /usr/bin 下的 swiftc / xcrun / git
+（Xcode 跨大版本升级会让许可证同意失效，之后 /usr/bin 下的 swiftc / xcrun / lipo
 这些 shim 一律报这个错。）
 """
 
@@ -38,6 +37,7 @@ import plistlib
 import shutil
 import subprocess
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,15 +48,17 @@ COMMENT_KEY = "com.apple.metadata:kMDItemFinderComment"
 # (桌面按钮名, /Applications 里的 app 名, 按钮注释)
 SHORTCUTS = [
     (
-        "关闭屏幕（合盖不休）",
-        "关闭屏幕.app",
-        "双击进入关屏模式：屏幕关掉、任务继续跑。合盖也不会真正休眠，"
-        "要双击桌面上的「开启屏幕」才能停。",
+        "轻醒",
+        "轻醒.app",
+        "双击切换熄屏模式：关屏 ↔ 正常使用。菜单栏的显示器图标里有「轻醒设置…」"
+        "和「退出轻醒」。关屏模式持有防闲置睡眠声明，合盖也不会放手——要停就再双击一次。",
     ),
-    ("开启屏幕", "开启屏幕.app", "双击退出关屏模式，恢复正常使用。"),
-    ("轻醒设置", "轻醒设置.app", "配置按键规则、查看关屏与亮屏说明。"),
-    ("轻醒按键", "轻醒按键.app", "供键盘、鼠标和外部映射工具调用，执行指定按键的屏幕规则。"),
 ]
+
+# 3.0 之前的四个 app 和四个桌面按钮。合并成单 app 之后它们只剩误导作用，
+# 装机时一并归档（挪进备份目录，不删）。
+RETIRED_APPS = ["关闭屏幕.app", "开启屏幕.app", "轻醒按键.app", "轻醒设置.app"]
+RETIRED_SHORTCUTS = ["关闭屏幕（合盖不休）", "开启屏幕", "轻醒设置", "轻醒按键"]
 
 
 class InstallError(SystemExit):
@@ -143,7 +145,7 @@ def read_version(app: Path) -> str:
 
 
 def check_build_output() -> None:
-    """构建产物齐全才动手。装到第三个才发现少一个，前两个已经覆盖掉了。"""
+    """构建产物齐全才动手。装到一半才发现产物缺了，旧版已经挪走了。"""
     problems = []
     for _, name, _ in SHORTCUTS:
         app = BUILD / name
@@ -162,29 +164,44 @@ def check_build_output() -> None:
         )
 
 
-def archive_existing(app: Path) -> Path | None:
-    """替换前把已装的那份挪进归档目录，不删。"""
-    if not app.exists():
+def archive_existing(item: Path) -> Path | None:
+    """替换前把已经在位的那份挪进归档目录，不删。
+
+    `item` 可能是 app 目录，也可能是桌面上一个按钮（别名文件）。
+    """
+    if not item.exists() and not item.is_symlink():
         return None
     folder = ARCHIVE / f"{dt.date.today().isoformat()}-轻醒装机"
     folder.mkdir(parents=True, exist_ok=True)
     stamp = dt.datetime.now().strftime("%H%M%S")
-    destination = folder / f"{app.name}-{stamp}"
+    destination = folder / f"{item.name}-{stamp}"
     # 同一秒里连装两次时别把上一份归档盖掉——那是备份，静默删除最不该发生
     counter = 2
     while destination.exists():
-        destination = folder / f"{app.name}-{stamp}-{counter}"
+        destination = folder / f"{item.name}-{stamp}-{counter}"
         counter += 1
-    shutil.move(app, destination)
+    shutil.move(item, destination)
     print(f"  旧版已归档：{destination}")
     return destination
 
 
-def install_apps(applications: Path) -> list[tuple[Path, str]]:
-    """装四个 app。四个是一套（同一个可执行文件换 plist），任何一个出问题就整批退回原状。
+def retire_legacy(paths: Iterable[Path]) -> None:
+    """把 3.0 之前的旧产物挪进归档。找不到就当已经清过了。"""
+    present = [path for path in paths if path.exists() or path.is_symlink()]
+    if not present:
+        return
+    print("归档 3.0 之前的旧产物：")
+    for path in present:
+        archive_existing(path)
 
-    只回滚失败的那一个会留下混版：关闭屏幕是新的、轻醒设置还是旧的，看版本号也说不清
-    到底跑的是哪一版。要么四个都新，要么四个都维持原样。
+
+def install_apps(applications: Path) -> list[tuple[Path, str]]:
+    """装 app：先把旧的归档，铺上新的，再验签名；任何一步失败就退回原状。
+
+    今天 `SHORTCUTS` 里只有一个 app，所以这就是一次普通的"换上去、换不成就换回来"。
+    仍然按列表走，是因为"装哪些、装到哪"只由 `SHORTCUTS` 一处说了算——
+    以后真再加一个 app，这里不用改。半装状态（新的铺了一半、旧的已经挪走）
+    比"完全没装"更难查，所以宁可整批退回。
     """
     check_build_output()
     applications.mkdir(parents=True, exist_ok=True)
@@ -211,7 +228,7 @@ def install_apps(applications: Path) -> list[tuple[Path, str]]:
             run("/usr/bin/codesign", "--verify", "--deep", "--strict", step["destination"])
     except subprocess.CalledProcessError as error:
         tool = Path(str(error.cmd[0])).name
-        print(f"\n{tool} 退出码 {error.returncode}，整批退回原状：")
+        print(f"\n{tool} 退出码 {error.returncode}，退回原状：")
         for step in reversed(steps):
             destination = step["destination"]
             if step["archived"] is not None:
@@ -224,7 +241,7 @@ def install_apps(applications: Path) -> list[tuple[Path, str]]:
                 shutil.rmtree(destination, ignore_errors=True)
                 print(f"  清空（原来没装过）：{destination.name}")
         raise InstallError(
-            f"{failed} 安装失败：{tool} 退出码 {error.returncode}。四个 app 都已退回原状。"
+            f"{failed} 安装失败：{tool} 退出码 {error.returncode}。已退回原状。"
         ) from error
 
     return [(step["destination"], step["version"]) for step in steps]
@@ -273,10 +290,12 @@ def main() -> None:
         print("== 装到 " + str(options.applications) + " ==")
         installed = install_apps(options.applications)
         print(f"  装好 {len(installed)} 个应用")
+        retire_legacy(options.applications / name for name in RETIRED_APPS)
 
     print("== 桌面快捷按钮 ==")
     place_shortcuts(options.applications, options.desktop, options.force_shortcuts)
-    print("\n完成。按钮上「合盖不休」的含义见 docs/architecture.md。")
+    retire_legacy(options.desktop / label for label in RETIRED_SHORTCUTS)
+    print("\n完成。关屏模式「合盖不休」的含义见 docs/architecture.md。")
 
 
 if __name__ == "__main__":

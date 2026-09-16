@@ -156,7 +156,7 @@ final class InputRulesSettingsView: NSView {
             do { try service.apply(rules) } catch { try store.save(previous); throw error }
             let id = draft.id; reloadSelector(select: id)
             status.stringValue = draft.enabled && draft.kind != .mapped
-                ? "规则已保存。若尚未授权，请点击“授权输入监控”，在系统设置中允许轻醒按键，然后再次保存规则。"
+                ? "规则已保存。若尚未授权，请点击“授权输入监控”，在系统设置中允许轻醒，然后再次保存规则。"
                 : "规则已保存。只有对应按键触发时才执行。"
         } catch { showError(error.localizedDescription) }
     }
@@ -170,7 +170,7 @@ final class InputRulesSettingsView: NSView {
         } catch { showError(error.localizedDescription) }
     }
     @objc private func requestPermission() {
-        do { try service.requestInputPermission(); status.stringValue = "请在系统设置中允许“轻醒按键”监听输入，再回到这里保存规则。" }
+        do { try service.requestInputPermission(); status.stringValue = "请在系统设置中允许“轻醒”监听输入，再回到这里保存规则。" }
         catch { showError(error.localizedDescription) }
     }
     private func showError(_ message: String) { let alert = NSAlert(); alert.messageText = "未能保存按键规则"; alert.informativeText = message; alert.runModal() }

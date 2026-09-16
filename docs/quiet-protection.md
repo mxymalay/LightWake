@@ -16,12 +16,12 @@ Codex 读取桌面、使用桌面历史记录或执行电脑操作时，可能�
 
 ## 保留的任务调用检查
 
-随设置应用打包的 `quiet_desktop_check.py` 和 `quiet-sky.mjs` 只读取显示器、会话和轻醒模式状态，不截图、不注入输入、不创建唤醒声明、不暂停其他进程。
+随轻醒打包的 `quiet_desktop_check.py` 和 `quiet-sky.mjs` 只读取显示器、会话和轻醒模式状态，不截图、不注入输入、不创建唤醒声明、不暂停其他进程。
 
-需要使用 Sky 的任务可主动采用包装器；将路径指向当前安装的设置应用资源：
+需要使用 Sky 的任务可主动采用包装器；将路径指向当前安装的应用资源：
 
 ```js
-var quietModule = await import('file:///Applications/轻醒设置.app/Contents/Resources/quiet-desktop/quiet-sky.mjs');
+var quietModule = await import('file:///Applications/轻醒.app/Contents/Resources/quiet-desktop/quiet-sky.mjs');
 var sky = quietModule.createQuietSky((await import('@oai/sky')).sky);
 ```
 

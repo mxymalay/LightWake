@@ -34,7 +34,8 @@ enum ScreenInputRulesTests {
         duplicate.enabled = false
         try store.save([keyboard, duplicate])
         check(store.load().count == 2, "A disabled draft may reuse a shortcut")
-        for target in [ScreenInputContract.controllerID, "local.xy.turn-on-display", "bad;command"] {
+        // 无效目标：轻醒自己（会递归调用）、带 shell 字符的、以及不是反向域名形式的
+        for target in [ScreenInputContract.ownBundleID, "bad;command", "nodots"] {
             var invalid = mouse; invalid.target.applicationIdentifier = target
             do { try store.save([invalid]); preconditionFailure("Invalid target accepted") } catch {}
         }

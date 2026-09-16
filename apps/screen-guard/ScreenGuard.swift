@@ -252,7 +252,6 @@ final class ScreenGuardController: NSObject {
     private var assertion: IOPMAssertionID = 0
     private var holdsAssertion = false
     private var lastPhase: GuardPhase = .inactive
-    private var statusItem: NSStatusItem?
     private let logger = Logger(subsystem: "local.xy.screen-guard", category: "lifecycle")
 
     init(store: ScreenControlStore = ScreenControlStore(), notice: ScreenNoticing = ScreenNotice(), now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }, sessionStatus: @escaping () -> GuardSession = ScreenGuardController.currentSession, sleepDisplay: @escaping () throws -> Void = ScreenGuardController.performDisplaySleep, finished: @escaping () -> Void) {
@@ -298,7 +297,6 @@ final class ScreenGuardController: NSObject {
             throw NSError(domain: "ScreenGuard", code: Int(result), userInfo: [NSLocalizedDescriptionKey: "无法保持电脑唤醒，已取消自动熄屏。"])
         }
         holdsAssertion = true
-        makeMenu()
         timer = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in self?.tick() }
         timer?.tolerance = 0.04
         RunLoop.main.add(timer!, forMode: .common)
@@ -426,7 +424,6 @@ final class ScreenGuardController: NSObject {
         DistributedNotificationCenter.default().removeObserver(self)
         notice.hide()
         if holdsAssertion { IOPMAssertionRelease(assertion); holdsAssertion = false }
-        if let item = statusItem { NSStatusBar.system.removeStatusItem(item); statusItem = nil }
         if finish { finished() }
     }
 
@@ -439,57 +436,7 @@ final class ScreenGuardController: NSObject {
         finished()
     }
 
-    private func makeMenu() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = NSImage(systemSymbolName: "display", accessibilityDescription: "自动熄屏模式")
-        item.button?.toolTip = "自动熄屏模式：唤醒 20 秒后再次关闭屏幕"
-        let menu = NSMenu()
-        let on = NSMenuItem(title: "开启屏幕（退出模式）", action: #selector(turnOn), keyEquivalent: "")
-        on.target = self
-        menu.addItem(on)
-        let off = NSMenuItem(title: "立即关闭屏幕", action: #selector(sleepAgain), keyEquivalent: "")
-        off.target = self
-        menu.addItem(off)
-        menu.addItem(.separator())
-        let settings = NSMenuItem(title: "轻醒设置（退出熄屏模式）…", action: #selector(openSettings), keyEquivalent: "")
-        settings.target = self
-        menu.addItem(settings)
-        item.menu = menu
-        statusItem = item
-    }
-
-    @objc private func openSettings() {
-        let sibling = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("轻醒设置.app")
-        let destination = FileManager.default.fileExists(atPath: sibling.path) ? sibling
-            : NSWorkspace.shared.urlForApplication(withBundleIdentifier: "local.xy.lightwake-settings")
-        guard let destination else {
-            let alert = NSAlert()
-            alert.messageText = "找不到轻醒设置"
-            alert.informativeText = "请将构建目录中的「轻醒设置.app」一同复制到应用程序。"
-            // The user requested settings; stop the countdown while they read.
-            try? store.write("off")
-            stop(finish: false)
-            alert.runModal()
-            finished()
-            return
-        }
-        do { try store.write("off") }
-        catch { fail(error); return }
-        stop(finish: false)
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.activates = true
-        configuration.addsToRecentItems = false
-        NSWorkspace.shared.openApplication(at: destination, configuration: configuration) { [weak self] _, error in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                if let error {
-                    let alert = NSAlert()
-                    alert.messageText = "无法打开轻醒设置"
-                    alert.informativeText = error.localizedDescription
-                    alert.runModal()
-                }
-                self.finished()
-            }
-        }
-    }
+    // 菜单栏图标和"轻醒设置"入口不在这里 —— 合成单 app 之后它们归应用层
+    // （Main.swift 的 AppDelegate），因为图标要常驻、而常驻的前提是应用不随熄屏
+    // 模式结束而退出。这个类只负责熄屏状态机 + 电源断言 + 提示条。
 }

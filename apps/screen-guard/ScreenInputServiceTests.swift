@@ -5,7 +5,7 @@ enum ScreenInputServiceTests {
     static func main() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("lightwake-input-service-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
-        let helper = root.appendingPathComponent("Applications/轻醒按键.app")
+        let helper = root.appendingPathComponent("Applications/轻醒.app")
         let agent = root.appendingPathComponent("LaunchAgents/input-rules.plist")
         var calls: [[String]] = []
         let manager = ScreenInputServiceManager(helper: helper, agentURL: agent, run: { args in
@@ -21,7 +21,7 @@ enum ScreenInputServiceTests {
         precondition(calls.isEmpty, "An old helper must not receive --listen and accidentally toggle the screen")
         let contents = helper.appendingPathComponent("Contents")
         try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
-        let info: [String: Any] = ["CFBundleIdentifier": ScreenInputContract.controllerID, "CFBundleExecutable": "ScreenGuard", "CFBundlePackageType": "APPL", "ScreenInputRulesVersion": 1]
+        let info: [String: Any] = ["CFBundleIdentifier": ScreenInputContract.ownBundleID, "CFBundleExecutable": "ScreenGuard", "CFBundlePackageType": "APPL", "ScreenInputRulesVersion": 1]
         try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: contents.appendingPathComponent("Info.plist"))
         try manager.apply([keyboard])
         let job = try PropertyListSerialization.propertyList(from: Data(contentsOf: agent), format: nil) as! [String: Any]

@@ -31,7 +31,18 @@ struct ScreenInputRule: Codable, Equatable, Identifiable {
 enum ScreenInputContract {
     static let version = 1
     static let legacyRuleID = "legacy-toggle"
-    static let controllerID = "local.xy.screen-guard-control"
+    /// 轻醒自己的 bundle id。以前是四个 app 各有各的 id，输入规则要拒绝把目标设成
+    /// "自己人"；合成一个 app 之后自己人只剩这一个。
+    static let ownBundleID = "local.xy.lightwake"
+    /// 进/出熄屏模式的**进程内命令符号**。
+    ///
+    /// 以前这两个动作是靠启动 `关闭屏幕.app` / `开启屏幕.app` 完成的，按钮控制器用
+    /// `openApplication(bundleID, …)` 表达它们。合成单 app 之后那两个 bundle 不存在了，
+    /// 但 `ScreenButtonController` 的接口（和它的测试）都建立在"给一个 bundle id"上，
+    /// 所以保留这两个符号名，由应用层在 `openApplication` 里拦下来、在本进程内执行。
+    /// 它们**不是**真实的 bundle id，不会被 LaunchServices 解析。
+    static let enterOffModeCommand = "local.xy.lightwake.command.enter-off-mode"
+    static let exitOffModeCommand = "local.xy.lightwake.command.exit-off-mode"
     static let reloadNotification = "local.xy.lightwake.input-rules-changed"
     static func mappedRuleID(from url: URL) -> String? {
         guard let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
@@ -45,8 +56,7 @@ enum ScreenInputContract {
         id == legacyRuleID || UUID(uuidString: id) != nil
     }
     static func validApplication(_ identifier: String) -> Bool {
-        let own = [controllerID, "local.xy.turn-off-display", "local.xy.turn-on-display", "local.xy.lightwake-settings"]
-        return identifier.count <= 255 && !own.contains(identifier)
+        return identifier.count <= 255 && identifier != ownBundleID
             && identifier.range(of: "^[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+$", options: .regularExpression) != nil
     }
 }
@@ -117,8 +127,8 @@ enum KarabinerBindingReader {
                 let matches = outputs.contains { output in
                     guard let software = output["software_function"] as? [String: Any],
                           let application = software["open_application"] as? [String: Any] else { return false }
-                    return application["bundle_identifier"] as? String == ScreenInputContract.controllerID
-                        || (application["file_path"] as? String).map { URL(fileURLWithPath: $0).lastPathComponent == "轻醒按键.app" } == true
+                    return application["bundle_identifier"] as? String == ScreenInputContract.ownBundleID
+                        || (application["file_path"] as? String).map { URL(fileURLWithPath: $0).lastPathComponent == "轻醒.app" } == true
                 }
                 guard matches, let from = mapping["from"] as? [String: Any] else { continue }
                 let button = from["pointing_button"] as? String ?? from["key_code"] as? String ?? "未知按键"

@@ -26,8 +26,10 @@ final class ScreenButtonController {
          now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          sessionStatus: @escaping () -> GuardSession = ScreenGuardController.currentSession,
          displayAsleep: @escaping () -> Bool = { CGDisplayIsAsleep(CGMainDisplayID()) != 0 },
+         // 合成单 app 之后熄屏模式跑在本进程里，所以应用层会注入一个精确的实现
+         // （"guard 控制器在不在跑"）。这个默认值只作兜底：轻醒进程在跑就算。
          guardRunning: @escaping () -> Bool = {
-             !NSRunningApplication.runningApplications(withBundleIdentifier: "local.xy.turn-off-display").isEmpty
+             !NSRunningApplication.runningApplications(withBundleIdentifier: ScreenInputContract.ownBundleID).isEmpty
          },
          wakeDisplay: @escaping () throws -> Void = ScreenButtonController.wakeDisplay,
          openApplication: @escaping ApplicationOpener = ScreenButtonController.openApplication,
@@ -86,7 +88,7 @@ final class ScreenButtonController {
         case .startCountdown:
             cancelPendingTarget()
             opening = true
-            openApplication("local.xy.turn-off-display", false) { [weak self] error in
+            openApplication(ScreenInputContract.enterOffModeCommand, false) { [weak self] error in
                 self?.finishedOpening(error)
             }
         case .keepScreenOn:
@@ -102,7 +104,7 @@ final class ScreenButtonController {
                 return
             }
             opening = true
-            openApplication("local.xy.turn-on-display", false) { [weak self] error in
+            openApplication(ScreenInputContract.exitOffModeCommand, false) { [weak self] error in
                 guard let self else { return }
                 if let error { self.logger.error("On app: \(error.localizedDescription, privacy: .public)") }
                 if rule.target.applicationIdentifier != nil || rule.target.folderPath != nil {
@@ -217,12 +219,11 @@ final class ScreenButtonController {
         try process.run()
     }
 
-    private static func openApplication(identifier: String, activates: Bool, completion: @escaping (Error?) -> Void) {
-        let siblingNames = ["local.xy.turn-off-display": "关闭屏幕.app", "local.xy.turn-on-display": "开启屏幕.app"]
-        let sibling = siblingNames[identifier].map { Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent($0) }
-        let url = sibling.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
-            ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: identifier)
-        guard let url else {
+    /// 打开一个**别的**应用。进 / 出熄屏模式不走这里 —— 那两个在单 app 里是进程内
+    /// 命令（`ScreenInputContract.enterOffModeCommand` / `exitOffModeCommand`），
+    /// 由应用层注入的 `openApplication` 拦下来在本进程执行。
+    static func openApplication(identifier: String, activates: Bool, completion: @escaping (Error?) -> Void) {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: identifier) else {
             completion(NSError(domain: "ScreenGuard", code: 1, userInfo: [NSLocalizedDescriptionKey: "找不到应用：\(identifier)"]))
             return
         }

@@ -3,23 +3,34 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDisplayName</key>
-	<string>轻醒设置</string>
+	<string>轻醒</string>
 	<key>CFBundleExecutable</key>
 	<string>ScreenGuard</string>
 	<key>CFBundleIconFile</key>
 	<string>ScreenGuard</string>
 	<key>CFBundleIdentifier</key>
-	<string>local.xy.lightwake-settings</string>
+	<string>local.xy.lightwake</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>轻醒设置</string>
+	<string>轻醒</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>2.2.1</string>
+	<string>3.0.0</string>
 	<key>CFBundleVersion</key>
-	<string>5</string>
+	<string>13</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>LightWake input rule</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>lightwake</string>
+			</array>
+		</dict>
+	</array>
 	<key>LSMinimumSystemVersion</key>
 	<string>26.0</string>
 	<key>LSUIElement</key>
@@ -30,7 +41,7 @@
 	<string>NSApplication</string>
 	<key>NSSupportsAutomaticTermination</key>
 	<false/>
-	<key>ScreenGuardRole</key>
-	<string>settings</string>
+	<key>ScreenInputRulesVersion</key>
+	<integer>1</integer>
 </dict>
 </plist>

@@ -21,6 +21,10 @@ enum ScreenButtonControllerTests {
         var offWasWrittenBeforeOnLaunch = false
         var failures: [String] = []
         var targets: [ScreenRuleTarget] = []
+        // 进 / 出熄屏模式在单 app 里是**进程内命令**，不再对应任何真实的 bundle id；
+        // 这里用简写让下面的断言读得动。
+        let enterOff = ScreenInputContract.enterOffModeCommand
+        let exitOff = ScreenInputContract.exitOffModeCommand
         func check(_ condition: Bool, _ message: String) {
             if !condition { failures.append(message) }
         }
@@ -29,10 +33,10 @@ enum ScreenButtonControllerTests {
             wakeDisplay: { wakeRequests += 1 }, openApplication: { identifier, activates, completion in
                 opened.append(identifier)
                 activation.append(activates)
-                if identifier == "local.xy.turn-off-display" {
+                if identifier == enterOff {
                     offRunning = true
                     try! store.write("test-session")
-                } else if identifier == "local.xy.turn-on-display" {
+                } else if identifier == exitOff {
                     offWasWrittenBeforeOnLaunch = store.matches("off")
                     offRunning = false
                 }
@@ -44,16 +48,16 @@ enum ScreenButtonControllerTests {
             }, rules: rules)
 
         controller.press()
-        check(opened == ["local.xy.turn-off-display"] && store.matches("test-session"),
-              "Normal press must open the off app and use its real mode token")
+        check(opened == [enterOff] && store.matches("test-session"),
+              "Normal press must enter off mode in-process and use its real mode token")
         controller.press()
         check(opened.count == 1, "Duplicate launch/reopen delivery cannot toggle twice")
         clock = 101
         controller.press()
-        check(opened == ["local.xy.turn-off-display", "local.xy.turn-on-display", "com.openai.codex"],
-              "Countdown press must open the on app followed by Codex")
+        check(opened == [enterOff, exitOff, "com.openai.codex"],
+              "Countdown press must leave off mode, then open Codex")
         check(activation == [false, false, true], "Only Codex takes the foreground")
-        check(offWasWrittenBeforeOnLaunch, "Cancel the mode before asynchronously launching the on app")
+        check(offWasWrittenBeforeOnLaunch, "Cancel the mode before asynchronously leaving it")
 
         clock = 110
         offRunning = true
@@ -62,12 +66,12 @@ enum ScreenButtonControllerTests {
         session = .locked
         let targetsBeforeLock = targets.count
         controller.press()
-        check(wakeRequests == 2 && store.matches("off") && opened.last == "local.xy.turn-on-display" && targets.count == targetsBeforeLock,
+        check(wakeRequests == 2 && store.matches("off") && opened.last == exitOff && targets.count == targetsBeforeLock,
               "A locked-screen press must wake and cancel the token, but wait for manual unlock before opening Codex")
         asleep = false
         clock = 111
         controller.press()
-        check(opened.last == "local.xy.turn-on-display" && store.matches("off") && targets.count == targetsBeforeLock,
+        check(opened.last == exitOff && store.matches("off") && targets.count == targetsBeforeLock,
               "Pressing again while locked cannot start a new countdown or open Codex before authentication")
 
         clock = 112; controller.checkPendingTarget()
@@ -86,8 +90,8 @@ enum ScreenButtonControllerTests {
         offRunning = false
         try store.write("stale-token-from-a-crashed-process")
         controller.press()
-        check(opened.last == "local.xy.turn-off-display" && opened.count == 7,
-              "A stale mode token without a running off app must not be treated as a countdown")
+        check(opened.last == enterOff && opened.count == 7,
+              "A stale mode token without a running off mode must not be treated as a countdown")
         clock = 130
         session = .unavailable
         controller.press()
@@ -178,7 +182,7 @@ enum ScreenButtonControllerTests {
         let cancelledTargets = targets.count
         session = .locked; clock += 10; controller.perform(keyboardRule)
         session = .unlocked; clock += 1; controller.press()
-        check(opened.last == "local.xy.turn-off-display", "A new normal toggle must still start its countdown while a target was pending")
+        check(opened.last == enterOff, "A new normal toggle must still start its countdown while a target was pending")
         try store.write("off"); offRunning = false
         clock += 1; controller.checkPendingTarget()
         clock += 1; controller.checkPendingTarget()

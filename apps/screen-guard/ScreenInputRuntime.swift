@@ -93,7 +93,7 @@ final class ScreenInputServiceManager {
     private let run: ([String]) throws -> Int32
     let helper: URL
     let agentURL: URL
-    init(helper: URL = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("轻醒按键.app"),
+    init(helper: URL = Bundle.main.bundleURL,
          agentURL: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/LaunchAgents/\(label).plist"),
          run: @escaping ([String]) throws -> Int32 = ScreenInputServiceManager.runCommand) {
         self.helper = helper; self.agentURL = agentURL; self.run = run
@@ -128,9 +128,9 @@ final class ScreenInputServiceManager {
         DistributedNotificationCenter.default().postNotificationName(Notification.Name(ScreenInputContract.reloadNotification), object: nil, userInfo: nil, deliverImmediately: true)
     }
     private func validateHelper() throws {
-        guard let bundle = Bundle(url: helper), bundle.bundleIdentifier == ScreenInputContract.controllerID,
+        guard let bundle = Bundle(url: helper), bundle.bundleIdentifier == ScreenInputContract.ownBundleID,
               bundle.object(forInfoDictionaryKey: "ScreenInputRulesVersion") as? Int == 1 else {
-            throw failure("请将本次构建的「轻醒按键.app」与「轻醒设置.app」一起安装，再启用按键规则。")
+            throw failure("请把「轻醒.app」装到应用程序目录，再启用按键规则。")
         }
     }
     private func failure(_ text: String) -> Error { NSError(domain: "LightWake.InputRules", code: 4, userInfo: [NSLocalizedDescriptionKey: text]) }
