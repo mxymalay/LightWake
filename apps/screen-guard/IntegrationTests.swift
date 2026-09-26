@@ -2,20 +2,27 @@ import AppKit
 
 final class RecordingNotice: ScreenNoticing {
     var title: String?
+    var footnote: String?
     var countdown = false
     var compactSeconds: Int?
     func show(title: String, subtitle: String, countdown: Bool) {
+        show(title: title, subtitle: subtitle, footnote: nil, countdown: countdown)
+    }
+    func show(title: String, subtitle: String, footnote: String?, countdown: Bool) {
         self.title = title
+        self.footnote = footnote
         self.countdown = countdown
         compactSeconds = nil
     }
     func showCountdown(seconds: Int) {
         title = nil
+        footnote = nil
         countdown = false
         compactSeconds = seconds
     }
     func hide() {
         title = nil
+        footnote = nil
         countdown = false
         compactSeconds = nil
     }
@@ -48,6 +55,8 @@ struct IntegrationTests {
         try controller.start()
         check(sleeps == 0 && notice.title?.contains("5") == true && !notice.countdown && notice.compactSeconds == nil,
               "Starting off must immediately show the three-second reminder without sleeping")
+        check(notice.footnote == ScreenNoticeText.initialReminderFootnote,
+              "The screen-off reminder must carry the keep-running-through-lid-close note")
         for time in [90.999, 91.0, 92.0, 92.999] {
             clock = time
             controller.tick()
@@ -279,19 +288,23 @@ struct IntegrationTests {
 
         // 三种会出现在屏幕上的提示，一张图看全 —— 包括退出熄屏模式那条回执。
         // 之前这张图只画了两种倒计时提示，回执的文案就没有任何地方盯着，
-        // 合并四个 app 时它连"还该不该存在"都没人问。
-        let previews = [
-            (ScreenNoticeText.wakeReminderTitle, ScreenNoticeText.wakeReminderSubtitle, "20 秒窗口的提示"),
-            (ScreenNoticeText.initialReminderTitle, ScreenNoticeText.initialReminderSubtitle, "进入熄屏模式的提示"),
-            (ScreenNoticeText.turnedOnTitle, ScreenNoticeText.turnedOnSubtitle, "退出熄屏模式的回执"),
+        // 合并四个 app 时它连"还该不该存在"都没人问。进入熄屏模式的提示
+        // 还带一行"合盖也保持运行"的补充说明（README「合盖不休」一节）。
+        let previews: [(title: String, subtitle: String, footnote: String?, label: String)] = [
+            (ScreenNoticeText.wakeReminderTitle, ScreenNoticeText.wakeReminderSubtitle, nil, "20 秒窗口的提示"),
+            (ScreenNoticeText.initialReminderTitle, ScreenNoticeText.initialReminderSubtitle, ScreenNoticeText.initialReminderFootnote, "进入熄屏模式的提示"),
+            (ScreenNoticeText.turnedOnTitle, ScreenNoticeText.turnedOnSubtitle, nil, "退出熄屏模式的回执"),
         ]
-        let canvas = NSView(frame: NSRect(x: 0, y: 0, width: 554, height: 12 + 124 * previews.count))
-        var banners: [(view: NoticeView, label: String)] = []
+        let heights = previews.map { NoticeView.bannerHeight(hasFootnote: $0.footnote != nil) }
+        let canvas = NSView(frame: NSRect(x: 0, y: 0, width: 554, height: 12 + heights.reduce(0, +) + 12 * CGFloat(previews.count)))
+        var banners: [(view: NoticeView, label: String, footnote: String?)] = []
+        var rowTop = canvas.frame.height - 12
         for (index, preview) in previews.enumerated() {
-            let banner = NoticeView(frame: NSRect(x: 12, y: 12 + 124 * (previews.count - 1 - index), width: 530, height: 112))
-            banner.update(title: preview.0, subtitle: preview.1, countdown: false)
+            let banner = NoticeView(frame: NSRect(x: 12, y: rowTop - heights[index], width: 530, height: heights[index]))
+            banner.update(title: preview.title, subtitle: preview.subtitle, footnote: preview.footnote, countdown: false)
             canvas.addSubview(banner)
-            banners.append((banner, preview.2))
+            banners.append((banner, preview.label, preview.footnote))
+            rowTop -= heights[index] + 12
         }
         let window = NSWindow(contentRect: canvas.bounds, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = canvas
@@ -299,9 +312,13 @@ struct IntegrationTests {
         canvas.cacheDisplay(in: canvas.bounds, to: bitmap)
         guard let png = bitmap.representation(using: .png, properties: [:]) else { fatalError("PNG unavailable") }
         try png.write(to: directory.appendingPathComponent("notice-preview.png"))
-        for (banner, label) in banners {
+        for (banner, label, footnote) in banners {
             check(banner.title.intrinsicContentSize.width < 420 && banner.subtitle.intrinsicContentSize.width < 420,
                   "\(label) must fit without truncation")
+            if let footnote {
+                check(banner.footnote.intrinsicContentSize.width < 420,
+                      "\(label) footnote must fit without truncation")
+            }
         }
         print("PASS: \(checks) controller and cancellation checks; preview rendered; no real sleep command executed.")
     }

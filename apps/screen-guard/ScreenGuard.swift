@@ -7,7 +7,12 @@ let stopNotification = Notification.Name("local.xy.screen-guard.turn-on")
 final class NoticeView: NSView {
     let title = NSTextField(labelWithString: "")
     let subtitle = NSTextField(labelWithString: "")
+    let footnote = NSTextField(labelWithString: "")
     let symbol = NSImageView()
+
+    /// 横幅高度跟着内容走：带补充行（进熄屏模式的提醒）才用加高版，
+    /// 两行提示不留第三行的空，免得下面凭空缺一块。
+    static func bannerHeight(hasFootnote: Bool) -> CGFloat { hasFootnote ? 132 : 112 }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -16,24 +21,35 @@ final class NoticeView: NSView {
         layer?.cornerRadius = 20
         layer?.borderWidth = 1
         layer?.borderColor = NSColor.white.withAlphaComponent(0.15).cgColor
-        symbol.frame = NSRect(x: 24, y: 36, width: 40, height: 40)
         symbol.contentTintColor = NSColor(calibratedRed: 0.42, green: 0.78, blue: 1, alpha: 1)
-        title.frame = NSRect(x: 84, y: 59, width: 420, height: 30)
         title.font = .systemFont(ofSize: 22, weight: .semibold)
         title.textColor = .white
-        subtitle.frame = NSRect(x: 84, y: 25, width: 420, height: 25)
         subtitle.font = .systemFont(ofSize: 15)
         subtitle.textColor = NSColor.white.withAlphaComponent(0.78)
+        footnote.font = .systemFont(ofSize: 13)
+        footnote.textColor = NSColor.white.withAlphaComponent(0.55)
         addSubview(symbol)
         addSubview(title)
         addSubview(subtitle)
+        addSubview(footnote)
+        layoutContent(hasFootnote: false)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
 
-    func update(title: String, subtitle: String, countdown: Bool) {
+    private func layoutContent(hasFootnote: Bool) {
+        symbol.frame = NSRect(x: 24, y: hasFootnote ? 46 : 36, width: 40, height: 40)
+        title.frame = NSRect(x: 84, y: hasFootnote ? 79 : 59, width: 420, height: 30)
+        subtitle.frame = NSRect(x: 84, y: hasFootnote ? 45 : 25, width: 420, height: 25)
+        footnote.frame = NSRect(x: 84, y: 16, width: 420, height: 20)
+    }
+
+    func update(title: String, subtitle: String, footnote: String? = nil, countdown: Bool = false) {
         self.title.stringValue = title
         self.subtitle.stringValue = subtitle
+        self.footnote.stringValue = footnote ?? ""
+        self.footnote.isHidden = footnote == nil
+        layoutContent(hasFootnote: footnote != nil)
         symbol.image = NSImage(systemSymbolName: countdown ? "timer" : "display", accessibilityDescription: nil)
         symbol.contentTintColor = countdown ? .systemOrange : NSColor(calibratedRed: 0.42, green: 0.78, blue: 1, alpha: 1)
     }
@@ -41,8 +57,16 @@ final class NoticeView: NSView {
 
 protocol ScreenNoticing {
     func show(title: String, subtitle: String, countdown: Bool)
+    func show(title: String, subtitle: String, footnote: String?, countdown: Bool)
     func showCountdown(seconds: Int)
     func hide()
+}
+
+extension ScreenNoticing {
+    /// 没实现补充行版本的类型走这条转发：丢掉 footnote，按两行提示显示。
+    func show(title: String, subtitle: String, footnote: String?, countdown: Bool) {
+        show(title: title, subtitle: subtitle, countdown: countdown)
+    }
 }
 
 /// 屏幕上出现的那些字。
@@ -54,6 +78,9 @@ protocol ScreenNoticing {
 enum ScreenNoticeText {
     static let initialReminderTitle = "屏幕将在 5 秒后关闭"
     static let initialReminderSubtitle = "双击桌面上的「轻醒」可取消"
+    /// 进熄屏模式时把"合盖不休"说在明处（README「合盖不休」一节），免得合盖之后
+    /// 以为已经收工了。桌面按钮的 Finder 注释和安装说明里是同一件事。
+    static let initialReminderFootnote = "合盖后电脑仍保持运行，后台任务继续"
     static let wakeReminderTitle = "屏幕将临时亮起 20 秒"
     static let wakeReminderSubtitle = "需要继续使用？请双击桌面上的「轻醒」"
     /// 退出熄屏模式时的回执。旧版由「开启屏幕.app」自己亮这一条。
@@ -61,7 +88,7 @@ enum ScreenNoticeText {
     static let turnedOnSubtitle = "自动熄屏模式已关闭，可以正常使用电脑"
     /// 全部句子，给"不能指向已退役入口"那条测试用。
     static let all = [
-        initialReminderTitle, initialReminderSubtitle,
+        initialReminderTitle, initialReminderSubtitle, initialReminderFootnote,
         wakeReminderTitle, wakeReminderSubtitle,
         turnedOnTitle, turnedOnSubtitle,
     ]
@@ -99,7 +126,7 @@ final class TransientNotice {
         cancel()
         let token = UUID()
         pending = token
-        notice.show(title: title, subtitle: subtitle, countdown: false)
+        notice.show(title: title, subtitle: subtitle, footnote: nil, countdown: false)
         schedule(seconds) { [weak self] in
             guard let self, self.pending == token else { return }
             self.pending = nil
@@ -177,7 +204,7 @@ private final class NoticeSurface: NSView {
 }
 
 final class ScreenNotice: ScreenNoticing {
-    private let bannerSize = NSSize(width: 530, height: 112)
+    private let bannerWidth: CGFloat = 530
     private let cornerSize = NSSize(width: 72, height: 64)
     var panels: [NSPanel] = []
     private(set) var shownTitle: String?
@@ -185,18 +212,23 @@ final class ScreenNotice: ScreenNoticing {
     private var compact = false
     private var movement: Timer?
 
-    func show(title: String, subtitle: String, countdown: Bool = false) {
+    func show(title: String, subtitle: String, countdown: Bool) {
+        show(title: title, subtitle: subtitle, footnote: nil, countdown: countdown)
+    }
+
+    func show(title: String, subtitle: String, footnote: String? = nil, countdown: Bool = false) {
         stopMovement()
         compact = false
         shownTitle = title
         shownSeconds = nil
+        let size = NSSize(width: bannerWidth, height: NoticeView.bannerHeight(hasFootnote: footnote != nil))
         let screens = NSScreen.screens
-        preparePanels(screens: screens)
+        preparePanels(screens: screens, contentSize: size)
         for (panel, screen) in zip(panels, screens) {
             guard let content = panel.contentView as? NoticeSurface else { continue }
-            content.banner.update(title: title, subtitle: subtitle, countdown: countdown)
+            content.banner.update(title: title, subtitle: subtitle, footnote: footnote, countdown: countdown)
             content.showBanner()
-            panel.setFrame(bannerFrame(screen: screen), display: true)
+            panel.setFrame(bannerFrame(screen: screen, size: size), display: true)
             panel.orderFrontRegardless()
         }
     }
@@ -204,7 +236,7 @@ final class ScreenNotice: ScreenNoticing {
     func showCountdown(seconds: Int) {
         let screens = NSScreen.screens
         let alreadyCompact = compact && panels.count == screens.count
-        preparePanels(screens: screens)
+        preparePanels(screens: screens, contentSize: NSSize(width: bannerWidth, height: NoticeView.bannerHeight(hasFootnote: false)))
         shownTitle = nil
         shownSeconds = seconds
         compact = true
@@ -223,12 +255,12 @@ final class ScreenNotice: ScreenNoticing {
         moveToCorner(screens: screens)
     }
 
-    private func preparePanels(screens: [NSScreen]) {
+    private func preparePanels(screens: [NSScreen], contentSize: NSSize) {
         if panels.count != screens.count {
             stopMovement()
             panels.forEach { $0.orderOut(nil) }
             panels = screens.map { screen in
-                let p = NSPanel(contentRect: bannerFrame(screen: screen), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+                let p = NSPanel(contentRect: bannerFrame(screen: screen, size: contentSize), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
                 p.isFloatingPanel = true
                 p.hidesOnDeactivate = false
                 p.becomesKeyOnlyIfNeeded = true
@@ -239,15 +271,15 @@ final class ScreenNotice: ScreenNoticing {
                 p.hasShadow = true
                 p.ignoresMouseEvents = true
                 p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
-                p.contentView = NoticeSurface(frame: NSRect(origin: .zero, size: bannerSize))
+                p.contentView = NoticeSurface(frame: NSRect(origin: .zero, size: contentSize))
                 return p
             }
         }
     }
 
-    private func bannerFrame(screen: NSScreen) -> NSRect {
+    private func bannerFrame(screen: NSScreen, size: NSSize) -> NSRect {
         let frame = screen.visibleFrame
-        return NSRect(x: frame.midX - bannerSize.width / 2, y: frame.maxY - 140, width: bannerSize.width, height: bannerSize.height)
+        return NSRect(x: frame.midX - size.width / 2, y: frame.maxY - 140, width: size.width, height: size.height)
     }
 
     private func cornerFrame(screen: NSScreen) -> NSRect {
@@ -442,6 +474,7 @@ final class ScreenGuardController: NSObject {
         case .initialReminder:
             notice.show(title: ScreenNoticeText.initialReminderTitle,
                         subtitle: ScreenNoticeText.initialReminderSubtitle,
+                        footnote: ScreenNoticeText.initialReminderFootnote,
                         countdown: false)
         case .reminder:
             notice.show(title: ScreenNoticeText.wakeReminderTitle,
